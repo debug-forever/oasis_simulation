@@ -1,0 +1,175 @@
+﻿"""微博 vLLM/私有 Qwen-API 适配示例，所有提示均为中文。"""
+from __future__ import annotations
+
+import asyncio
+import os
+import json
+import re
+from pathlib import Path
+
+from camel.models import ModelFactory, ModelManager
+from camel.types import ModelPlatformType
+
+import oasis
+from oasis import ActionType, LLMAction, ManualAction
+from oasis.social_agent.weibo_generator import (generate_weibo_agent_graph,
+                                                get_default_weibo_actions)
+
+DATASET_PATH = Path("weibo_test/total_data_with_descriptions_transformers.json")
+DB_PATH = Path("weibo_test/weibo_sim_vllm.db")
+_EMOJI_PATTERN = re.compile(r"[\U00010000-\U0010FFFF]")
+
+
+def _load_weibo_records() -> list[dict]:
+    data = json.loads(DATASET_PATH.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("微博数据集格式应为列表")
+    return data
+
+
+WEIBO_RECORDS = _load_weibo_records()
+
+
+def _strip_emoji(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = _EMOJI_PATTERN.sub("", text)
+    cleaned = cleaned.replace("\ufe0f", "").replace("\u200d", "")
+    return cleaned
+
+
+def _get_section(record: dict, *keys: str) -> dict:
+    for key in keys:
+        value = record.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _pick_post_text(record_idx: int, fallback: str) -> str:
+    record = WEIBO_RECORDS[record_idx % len(WEIBO_RECORDS)]
+    posts = _get_section(record, "近期发帖内容分析").get("全部帖子合集", []) or []
+    for raw in posts:
+        text = _strip_emoji(str(raw).strip())
+        if text:
+            return text
+    return fallback
+
+
+def _summarize_tags(record: dict) -> str:
+    tags = _get_section(record, "标签特征", "标签信息")
+    tag_items = []
+    if isinstance(tags, dict):
+        for key, value in tags.items():
+            if isinstance(value, str) and value.strip():
+                tag_items.append(f"{key}:{value.strip()}")
+            elif value not in (None, "", []):
+                tag_items.append(f"{key}:{value}")
+    return "、".join(tag_items[:3])
+
+
+def _describe_persona(record_idx: int) -> str:
+    record = WEIBO_RECORDS[record_idx % len(WEIBO_RECORDS)]
+    base_info = _get_section(record, "个人基本信息", "个人基础信息")
+    username = _strip_emoji(str(base_info.get("用户名") or f"微博用户{record_idx}"))
+    profile = _strip_emoji(str(base_info.get("用户简介") or "暂无简介"))
+    tags_line = _summarize_tags(record)
+    recent = _pick_post_text(record_idx, "暂无历史内容")
+    parts = [f"帐号：{username}", f"简介：{profile}"]
+    if tags_line:
+        parts.append(f"标签：{tags_line}")
+    parts.append(f"最近帖子示例：{recent}")
+    return "；".join(parts)
+
+
+def _compose_post_content(record_idx: int, fallback: str) -> str:
+    raw_text = _pick_post_text(record_idx, fallback)
+    raw_text = _strip_emoji(raw_text)
+    return raw_text if raw_text else fallback
+
+
+def build_vllm_manager() -> ModelManager:
+    endpoints = os.getenv("WEIBO_VLLM_ENDPOINTS",
+                           "http://127.0.0.1:8000/v1,http://127.0.0.1:8001/v1")
+    model_name = os.getenv("WEIBO_VLLM_MODEL", "qwen-2")
+    urls = [url.strip() for url in endpoints.split(",") if url.strip()]
+    models = [
+        ModelFactory.create(
+            model_platform=ModelPlatformType.VLLM,
+            model_type=model_name,
+            url=url,
+        ) for url in urls
+    ]
+    if not models:
+        raise ValueError("未提供任何 vLLM 端点，请设置 WEIBO_VLLM_ENDPOINTS。")
+    return ModelManager(models=models, scheduling_strategy='round_robin')
+
+
+def _prepare_database():
+    os.environ["OASIS_DB_PATH"] = str(DB_PATH.resolve())
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _log_persona(record_idx: int, label: str):
+    print(f"{label} 数据集信息：{_describe_persona(record_idx)}")
+
+
+async def main():
+    shared_model_manager = build_vllm_manager()
+    available_actions = get_default_weibo_actions()
+    _prepare_database()
+
+    agent_graph = await generate_weibo_agent_graph(
+        dataset_path=str(DATASET_PATH),
+        model=shared_model_manager,
+        available_actions=available_actions,
+    )
+
+    env = oasis.make(
+        agent_graph=agent_graph,
+        platform=oasis.DefaultPlatformType.WEIBO,
+        database_path=str(DB_PATH),
+    )
+
+    await env.reset()
+
+    _log_persona(0, "代理0")
+    first_actions = {
+        env.agent_graph.get_agent(0): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": _compose_post_content(2, "微博数据里关于体育的热门帖。")},
+        )
+    }
+    await env.step(first_actions)
+
+    enable_llm = os.getenv("WEIBO_ENABLE_LLM", "0") == "1"
+    if enable_llm:
+        selected_agents = env.agent_graph.get_agents([2, 4, 6, 8, 10])
+        llm_actions = {agent: LLMAction() for _, agent in selected_agents}
+        await env.step(llm_actions)
+    else:
+        print("当前未启用 LLM 行动（帖文取自微博数据集），若已有 vLLM 服务可设置 WEIBO_ENABLE_LLM=1。")
+
+    _log_persona(2, "代理2")
+    manual_post = {
+        env.agent_graph.get_agent(2): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": _compose_post_content(3, "微博数据里关于训练打卡的帖子。")},
+        )
+    }
+    await env.step(manual_post)
+
+    all_llm_actions = {agent: LLMAction() for _, agent in env.agent_graph.get_agents()}
+    if enable_llm:
+        await env.step(all_llm_actions)
+    else:
+        print("第二轮仍跳过 LLM 行动，确保脚本可在本地无服务的环境下测试。")
+
+    await env.close()
+    print(f"微博 vLLM/Qwen 实验完成，数据库存于：{DB_PATH}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
