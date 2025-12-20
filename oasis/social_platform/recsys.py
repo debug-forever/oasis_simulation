@@ -352,6 +352,56 @@ def rec_sys_personalized(user_table: List[Dict[str, Any]],
     print(f'Personalized recommendation time: {end_time - start_time:.6f}s')
     return new_rec_matrix
 
+def concat_unique_2d_lists(*arrays):
+    """Concatenate multiple 2D lists, removing duplicates within each row."""
+    for arr in arrays:
+        print("array len:", len(arr))
+    if not arrays:
+        return []
+
+    a = len(arrays[0])
+    if any(len(arr) != a for arr in arrays):
+        raise ValueError("所有数组第一维长度必须相同")
+
+    result = []
+
+    for i in range(a):
+        seen = set()
+        row = []
+
+        for arr in arrays:
+            for item in arr[i]:
+                if item not in seen:
+                    seen.add(item)
+                    row.append(item)
+
+        result.append(row)
+
+    return result
+
+
+def rec_sys_weibo(
+    user_table: List[Dict[str, Any]],
+    post_table: List[Dict[str, Any]],
+    trace_table: List[Dict[str, Any]],
+    rec_matrix: List[List],
+    max_rec_post_len: int,
+    swap_rate: float = 0.1,
+) -> List[List]:
+    """
+    Weibo recommendation system combining Reddit-like, personalized, and random recommendations."""
+    algorithm_rate = [0.5, 0.3, 0.2]
+    algorithm_len = [int(max_rec_post_len * item) for item in algorithm_rate]
+    print(f"weibo recsys algorithm len: {algorithm_len}")
+    reddit_rec = rec_sys_reddit(post_table, rec_matrix, algorithm_len[0])
+    tweeit_rec = rec_sys_personalized_with_trace(
+                user_table, post_table, trace_table, rec_matrix,
+                algorithm_len[1])
+    random_rec = rec_sys_random(post_table, rec_matrix, max_rec_post_len - algorithm_len[0] - algorithm_len[1])
+    new_rec_matrix = concat_unique_2d_lists(reddit_rec, tweeit_rec, random_rec)
+    return new_rec_matrix
+    
+
 
 def get_like_post_id(user_id, action, trace_table):
     """
@@ -719,11 +769,11 @@ def rec_sys_personalized_with_trace(
     new_rec_matrix = []
     post_ids = [post['post_id'] for post in post_table]
     if len(post_ids) <= max_rec_post_len:
-        new_rec_matrix = [post_ids] * (len(rec_matrix) - 1)
+        new_rec_matrix = [post_ids] * (len(rec_matrix))
     else:
-        for idx in range(1, len(rec_matrix)):
-            user_id = user_table[idx - 1]['user_id']
-            user_bio = user_table[idx - 1]['bio']
+        for idx in range(0, len(rec_matrix)):
+            user_id = user_table[idx]['user_id']
+            user_bio = user_table[idx]['bio']
             # filter out posts that belong to the user
             available_post_contents = [(post['post_id'], post['content'])
                                        for post in post_table

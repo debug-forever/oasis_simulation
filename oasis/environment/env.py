@@ -101,7 +101,7 @@ class OasisEnv:
                 self.platform = Platform(
                     db_path=database_path,
                     channel=self.channel,
-                    recsys_type="reddit",
+                    recsys_type="weibo",
                     allow_self_rating=False,
                     show_score=False,
                     max_rec_post_len=100,

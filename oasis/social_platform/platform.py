@@ -30,7 +30,7 @@ from oasis.social_platform.database import (create_db,
 from oasis.social_platform.platform_utils import PlatformUtils
 from oasis.social_platform.recsys import (rec_sys_personalized_twh,
                                           rec_sys_personalized_with_trace,
-                                          rec_sys_random, rec_sys_reddit)
+                                          rec_sys_random, rec_sys_reddit, rec_sys_weibo)
 from oasis.social_platform.typing import ActionType, RecsysType
 
 # Create log directory if it doesn't exist
@@ -177,7 +177,7 @@ class Platform:
 
     async def sign_up(self, agent_id, user_message):
         user_name, name, bio = user_message
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -219,7 +219,7 @@ class Platform:
 
     async def purchase_product(self, agent_id, purchase_message):
         product_name, purchase_num = purchase_message
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -257,7 +257,7 @@ class Platform:
 
     async def refresh(self, agent_id: int):
         # Retrieve posts for a specific id from the rec table
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -277,7 +277,7 @@ class Platform:
                 selected_post_ids = random.sample(selected_post_ids,
                                                   self.refresh_rec_post_count)
 
-            if self.recsys_type != RecsysType.REDDIT:
+            if self.recsys_type != RecsysType.REDDIT and self.recsys_type != RecsysType.WEIBO:
                 # Retrieve posts from following (in network)
                 # Modify the SQL query so that the refresh gets posts from
                 # people the user follows, sorted by the number of likes on
@@ -376,9 +376,15 @@ class Platform:
         elif self.recsys_type == RecsysType.REDDIT:
             new_rec_matrix = rec_sys_reddit(post_table, rec_matrix,
                                             self.max_rec_post_len)
+        elif self.recsys_type == RecsysType.WEIBO:
+            new_rec_matrix = rec_sys_weibo(
+                user_table, post_table, trace_table, rec_matrix,
+                self.max_rec_post_len)
         else:
             raise ValueError("Unsupported recommendation system type, please "
                              "check the `RecsysType`.")
+        
+        print("weibo new rec matrix:", new_rec_matrix)
 
         sql_query = "DELETE FROM rec"
         # Execute the SQL statement using the _execute_db_command function
@@ -398,7 +404,7 @@ class Platform:
         )
 
     async def create_post(self, agent_id: int, content: str):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -428,7 +434,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def repost(self, agent_id: int, post_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -503,7 +509,7 @@ class Platform:
 
     async def quote_post(self, agent_id: int, quote_message: tuple):
         post_id, quote_content = quote_message
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -561,7 +567,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def like_post(self, agent_id: int, post_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -665,7 +671,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def dislike_post(self, agent_id: int, post_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -857,7 +863,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def follow(self, agent_id: int, followee_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -964,7 +970,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def mute(self, agent_id: int, mutee_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1031,7 +1037,7 @@ class Platform:
         """
         Get the top K trending posts in the last num_days days.
         """
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1039,7 +1045,7 @@ class Platform:
         try:
             user_id = agent_id
             # Calculate the start time for the search
-            if self.recsys_type == RecsysType.REDDIT:
+            if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
                 start_time = current_time - timedelta(days=self.trend_num_days)
             else:
                 start_time = int(current_time) - self.trend_num_days * 24 * 60
@@ -1078,7 +1084,7 @@ class Platform:
 
     async def create_comment(self, agent_id: int, comment_message: tuple):
         post_id, content = comment_message
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1111,7 +1117,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def like_comment(self, agent_id: int, comment_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1219,7 +1225,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def dislike_comment(self, agent_id: int, comment_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1278,7 +1284,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def undo_dislike_comment(self, agent_id: int, comment_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1330,7 +1336,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def do_nothing(self, agent_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1356,7 +1362,7 @@ class Platform:
         Returns:
             dict: A dictionary with success status.
         """
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1393,7 +1399,7 @@ class Platform:
 
     async def report_post(self, agent_id: int, report_message: tuple):
         post_id, report_reason = report_message
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1447,7 +1453,7 @@ class Platform:
 
     async def send_to_group(self, agent_id: int, message: tuple):
         group_id, content = message
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1495,7 +1501,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def create_group(self, agent_id: int, group_name: str):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:
@@ -1529,7 +1535,7 @@ class Platform:
             return {"success": False, "error": str(e)}
 
     async def join_group(self, agent_id: int, group_id: int):
-        if self.recsys_type == RecsysType.REDDIT:
+        if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
         else:

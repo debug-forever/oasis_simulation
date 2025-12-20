@@ -35,8 +35,8 @@ from oasis import ActionType, LLMAction, ManualAction
 from oasis.social_agent.weibo_generator import (generate_weibo_agent_graph,
                                                 get_default_weibo_actions)
 
-DATASET_PATH = Path("weibo_test/total_data_with_descriptions_transformers.json")
-DB_PATH = Path("weibo_test/weibo_sim_openai.db")
+DATASET_PATH = Path("weibo_test/output.json")
+DB_PATH = Path("weibo_test/weibo_sim_vllm3.db")
 _EMOJI_PATTERN = re.compile(r"[\U00010000-\U0010FFFF]")
 
 
@@ -163,33 +163,46 @@ async def main():
     actions_1 = {
         env.agent_graph.get_agent(0): ManualAction(
             action_type=ActionType.CREATE_POST,
-            action_args={"content": "大家好，很高兴认识你，我是一个刚来的新人。能不能请评论区的各位大佬自我介绍一下？"},
+            action_args={"content": "泰国和柬埔寨打起来了，大家怎么看？"},
         )
     }
-    await env.step(actions_1)
-
-    enable_llm = 1
-    if enable_llm:
-        target_agents = env.agent_graph.get_agents([1, 3, 5, 7, 9])
-        actions_2 = {agent: LLMAction() for _, agent in target_agents}
-        await env.step(actions_2)
-    else:
-        print("未启用 LLM 行动，跳过自动互动回合。设置 WEIBO_ENABLE_LLM=1 可开启。")
-
-    _log_persona(1, "智能体1")
+    target_agents = env.agent_graph.get_agents([1, 3, 5, 7, 9])
+    actions_2 = {agent: LLMAction() for _, agent in target_agents}
     actions_3 = {
         env.agent_graph.get_agent(1): ManualAction(
             action_type=ActionType.CREATE_POST,
-            action_args={"content": _compose_post_content(1, "我刚加入社区，期待和大家互动。")},
+            action_args={"content": "支持泰国打击柬埔寨电诈园区"},
         )
     }
-    await env.step(actions_3)
- 
     actions_4 = {agent: LLMAction() for _, agent in env.agent_graph.get_agents()}
-    if enable_llm:
-        await env.step(actions_4)
-    else:
-        print("再次跳过 LLM 行动以避免调用实际接口，微博数据仍将写入数据库。")
+    actions_5 = {
+        env.agent_graph.get_agent(2): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": "大家用的手机上华为还是苹果？"},
+        )
+    }
+    actions_6 = {
+        env.agent_graph.get_agent(3): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": "泰国和柬埔寨说怎么打起来的？"},
+        )
+    }
+    actions_7 = {
+        env.agent_graph.get_agent(3): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": "这次冲突会不会影响到中国？"},
+        )
+    }
+    await env.step(actions_1)
+    await env.step(actions_2)
+    await env.step(actions_3)
+    await env.step(actions_5)
+    await env.step(actions_4)
+    # await env.step(actions_6)
+    # await env.step(actions_4)
+    # await env.step(actions_7)
+    # await env.step(actions_4)
+    # await env.step(actions_4)
 
     await env.close()
     print(f"微博 OpenAI/兼容实验结束，数据库位置：{DB_PATH}")

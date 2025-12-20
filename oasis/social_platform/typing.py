@@ -82,6 +82,7 @@ class RecsysType(Enum):
     TWITTER = "twitter"
     TWHIN = "twhin-bert"
     REDDIT = "reddit"
+    WEIBO = "weibo"
     RANDOM = "random"
 
 
