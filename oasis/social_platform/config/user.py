@@ -27,6 +27,9 @@ class UserInfo:
     profile: dict[str, Any] | None = None
     recsys_type: str = "twitter"
     is_controllable: bool = False
+    follower_list: str = ""
+    follower_num_list: str = ""
+    weibo_id: str = ""
 
     def to_custom_system_message(self, user_info_template: TextPrompt) -> str:
         required_keys = user_info_template.key_words

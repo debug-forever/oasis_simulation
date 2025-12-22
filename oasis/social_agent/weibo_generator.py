@@ -185,8 +185,21 @@ async def generate_weibo_agents(
             name=real_name,
             description=bio,
             profile=profile,
-            recsys_type="reddit",
+            recsys_type="weibo",
         )
+        follow_info = _get_section(record, "关注博主信息", "关注博主信息")
+        follower_info = _get_field(follow_info, "followers")
+        # print(follower_info)
+        if follower_info:
+            follower_list = json.dumps(list(follower_info.keys()), ensure_ascii=False)
+            reply_counts = [
+                v["reply_count"]
+                for v in follower_info.values()
+                ]
+            follower_num_list = json.dumps(reply_counts, ensure_ascii=False)
+            print(f"生成微博用户 {idx}，关注列表：{follower_list}，互动数列表：{follower_num_list}")
+            user_info.follower_list = follower_list
+            user_info.follower_num_list = follower_num_list
 
         agent = SocialAgent(
             agent_id=agent_id,
@@ -204,7 +217,7 @@ async def generate_weibo_agents(
         username = _safe_str(_get_field(base_info, "用户名"), f"weibo_user_{agent.agent_id}")
         real_name = _safe_str(_get_field(base_info, "用户昵称", default=username))
         bio = _safe_str(_get_field(base_info, "用户简介", default="暂无简介"))
-        resp = await agent.env.action.sign_up(username, real_name, bio)
+        resp = await agent.env.action.sign_up(username, real_name, bio, agent.user_info.follower_list, agent.user_info.follower_num_list)
         dataset_id = _safe_str(record.get("用户ID") or record.get("�û�ID"), str(agent.agent_id))
         user_id = resp.get("user_id")
         if user_id is None:
@@ -264,8 +277,22 @@ async def generate_weibo_agent_graph(
             name=username,
             description=bio,
             profile=profile,
-            recsys_type="reddit",
+            recsys_type="weibo",
         )
+        weibo_id = _get_field(record, "用户ID", "用户ID")
+        user_info.weibo_id = weibo_id
+        follow_info = _get_section(record, "关注博主信息", "关注博主信息")
+        follower_info = _get_field(follow_info, "followers")
+        # print(follower_info)
+        if follower_info:
+            follower_list = json.dumps(list(follower_info.keys()), ensure_ascii=False)
+            reply_counts = [
+                v["reply_count"]
+                for v in follower_info.values()
+                ]
+            follower_num_list = json.dumps(reply_counts, ensure_ascii=False)
+            user_info.follower_list = follower_list
+            user_info.follower_num_list = follower_num_list
 
         agent = SocialAgent(
             agent_id=idx,

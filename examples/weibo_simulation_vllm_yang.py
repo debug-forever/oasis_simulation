@@ -24,6 +24,10 @@ import json
 import re
 from pathlib import Path
 
+import sqlite3
+import json
+import ast
+
 # 强制配置 logging 输出流为我们修改过的 stdout
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, force=True)
 
@@ -135,6 +139,68 @@ def _log_persona(record_idx: int, label: str):
     except:
         pass
 
+def update_follower_id_list():
+        env_db_path = os.environ.get("OASIS_DB_PATH")
+        conn = sqlite3.connect(env_db_path)
+        cursor = conn.cursor()
+
+        # 1. 一次性加载 weibo_id -> user_id 映射
+        cursor.execute(f"""
+            SELECT weibo_id, user_id
+            FROM user
+            WHERE weibo_id IS NOT NULL
+        """)
+        weibo_to_user = {weibo_id: user_id for weibo_id, user_id in cursor.fetchall()}
+
+        # 2. 读取需要更新的记录
+        cursor.execute(f"""
+            SELECT rowid, follower_list
+            FROM user
+            WHERE follower_list IS NOT NULL
+        """)
+        rows = cursor.fetchall()
+
+        update_rows = []
+
+        for rowid, follower_list_str in rows:
+            try:
+                # 尝试 JSON
+                try:
+                    follower_weibo_ids = json.loads(follower_list_str)
+                except json.JSONDecodeError:
+                    # 兼容 str(list) 格式
+                    follower_weibo_ids = ast.literal_eval(follower_list_str)
+
+                if not isinstance(follower_weibo_ids, list):
+                    continue
+
+                # 3. 映射 weibo_id -> user_id
+                follower_user_ids = [
+                    weibo_to_user[w]
+                    for w in follower_weibo_ids
+                    if w in weibo_to_user
+                ]
+
+                update_rows.append((
+                    json.dumps(follower_user_ids, ensure_ascii=False),
+                    rowid
+                ))
+
+            except Exception as e:
+                print(f"[WARN] rowid={rowid} 处理失败: {e}")
+
+        # 4. 批量更新
+        cursor.executemany(f"""
+            UPDATE user
+            SET follower_id_list = ?
+            WHERE rowid = ?
+        """, update_rows)
+
+        conn.commit()
+        conn.close()
+
+        print(f"更新完成，共处理 {len(update_rows)} 条记录")
+
 
 async def main():
     if not WEIBO_RECORDS:
@@ -158,46 +224,47 @@ async def main():
     )
 
     await env.reset()
+    update_follower_id_list()
 
-    _log_persona(0, "智能体0")
-    actions_1 = {
-        env.agent_graph.get_agent(0): ManualAction(
-            action_type=ActionType.CREATE_POST,
-            action_args={"content": "泰国和柬埔寨打起来了，大家怎么看？"},
-        )
-    }
-    target_agents = env.agent_graph.get_agents([1, 3, 5, 7, 9])
-    actions_2 = {agent: LLMAction() for _, agent in target_agents}
-    actions_3 = {
-        env.agent_graph.get_agent(1): ManualAction(
-            action_type=ActionType.CREATE_POST,
-            action_args={"content": "支持泰国打击柬埔寨电诈园区"},
-        )
-    }
-    actions_4 = {agent: LLMAction() for _, agent in env.agent_graph.get_agents()}
-    actions_5 = {
-        env.agent_graph.get_agent(2): ManualAction(
-            action_type=ActionType.CREATE_POST,
-            action_args={"content": "大家用的手机上华为还是苹果？"},
-        )
-    }
-    actions_6 = {
-        env.agent_graph.get_agent(3): ManualAction(
-            action_type=ActionType.CREATE_POST,
-            action_args={"content": "泰国和柬埔寨说怎么打起来的？"},
-        )
-    }
-    actions_7 = {
-        env.agent_graph.get_agent(3): ManualAction(
-            action_type=ActionType.CREATE_POST,
-            action_args={"content": "这次冲突会不会影响到中国？"},
-        )
-    }
-    await env.step(actions_1)
-    await env.step(actions_2)
-    await env.step(actions_3)
-    await env.step(actions_5)
-    await env.step(actions_4)
+    # _log_persona(0, "智能体0")
+    # actions_1 = {
+    #     env.agent_graph.get_agent(0): ManualAction(
+    #         action_type=ActionType.CREATE_POST,
+    #         action_args={"content": "泰国和柬埔寨打起来了，大家怎么看？"},
+    #     )
+    # }
+    # target_agents = env.agent_graph.get_agents([1, 3, 5, 7, 9])
+    # actions_2 = {agent: LLMAction() for _, agent in target_agents}
+    # actions_3 = {
+    #     env.agent_graph.get_agent(1): ManualAction(
+    #         action_type=ActionType.CREATE_POST,
+    #         action_args={"content": "支持泰国打击柬埔寨电诈园区"},
+    #     )
+    # }
+    # actions_4 = {agent: LLMAction() for _, agent in env.agent_graph.get_agents()}
+    # actions_5 = {
+    #     env.agent_graph.get_agent(2): ManualAction(
+    #         action_type=ActionType.CREATE_POST,
+    #         action_args={"content": "大家用的手机上华为还是苹果？"},
+    #     )
+    # }
+    # actions_6 = {
+    #     env.agent_graph.get_agent(3): ManualAction(
+    #         action_type=ActionType.CREATE_POST,
+    #         action_args={"content": "泰国和柬埔寨说怎么打起来的？"},
+    #     )
+    # }
+    # actions_7 = {
+    #     env.agent_graph.get_agent(3): ManualAction(
+    #         action_type=ActionType.CREATE_POST,
+    #         action_args={"content": "这次冲突会不会影响到中国？"},
+    #     )
+    # }
+    # await env.step(actions_1)
+    # await env.step(actions_2)
+    # await env.step(actions_3)
+    # await env.step(actions_5)
+    # await env.step(actions_4)
     # await env.step(actions_6)
     # await env.step(actions_4)
     # await env.step(actions_7)

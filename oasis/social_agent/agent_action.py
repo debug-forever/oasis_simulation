@@ -66,7 +66,7 @@ class SocialAction:
         response = await self.channel.read_from_send_queue(message_id)
         return response[2]
 
-    async def sign_up(self, user_name: str, name: str, bio: str):
+    async def sign_up(self, user_name: str, name: str, bio: str, follower_list: str="", follower_num_list: str="", weibo_id: str=""):
         r"""Signs up a new user with the provided username, name, and bio.
 
         This method prepares a user message comprising the user's details and
@@ -91,7 +91,7 @@ class SocialAction:
 
         # print(f"Agent {self.agent_id} is signing up with "
         #       f"user_name: {user_name}, name: {name}, bio: {bio}")
-        user_message = (user_name, name, bio)
+        user_message = (user_name, name, bio, follower_list, follower_num_list, weibo_id)
         return await self.perform_action(user_message, ActionType.SIGNUP.value)
 
     async def refresh(self):

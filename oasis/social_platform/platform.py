@@ -176,7 +176,7 @@ class Platform:
         asyncio.run(self.running())
 
     async def sign_up(self, agent_id, user_message):
-        user_name, name, bio = user_message
+        user_name, name, bio, follower_list, follower_num_list, weibo_id = user_message
         if self.recsys_type == RecsysType.REDDIT or self.recsys_type == RecsysType.WEIBO:
             current_time = self.sandbox_clock.time_transfer(
                 datetime.now(), self.start_time)
@@ -185,11 +185,11 @@ class Platform:
         try:
             user_insert_query = (
                 "INSERT INTO user (user_id, agent_id, user_name, name, "
-                "bio, created_at, num_followings, num_followers) VALUES "
-                "(?, ?, ?, ?, ?, ?, ?, ?)")
+                "bio, created_at, num_followings, num_followers, follower_list, follower_id_list, follower_num_list, weibo_id) VALUES "
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             self.pl_utils._execute_db_command(
                 user_insert_query,
-                (agent_id, agent_id, user_name, name, bio, current_time, 0, 0),
+                (agent_id, agent_id, user_name, name, bio, current_time, 0, 0, follower_list, '1', follower_num_list, weibo_id),
                 commit=True,
             )
             user_id = agent_id

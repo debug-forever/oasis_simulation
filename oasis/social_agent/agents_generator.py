@@ -557,7 +557,10 @@ async def generate_custom_agents(
     sign_up_tasks = [
         agent.env.action.sign_up(user_name=agent.user_info.user_name,
                                  name=agent.user_info.name,
-                                 bio=agent.user_info.description)
+                                 bio=agent.user_info.description,
+                                 follower_list=agent.user_info.follower_list,
+                                 follower_num_list=agent.user_info.follower_num_list,
+                                 weibo_id=agent.user_info.weibo_id)    
         for _, agent in agent_graph.get_agents()
     ]
     await asyncio.gather(*sign_up_tasks)

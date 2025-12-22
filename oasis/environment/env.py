@@ -225,3 +225,7 @@ class OasisEnv:
         env_log.info("Simulation finished! Please check the results in the "
                      f"database: {self.platform.db_path}. Note that the trace "
                      "table stored all the actions of the agents.")
+        
+
+    
+
