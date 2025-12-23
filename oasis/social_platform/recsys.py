@@ -109,6 +109,9 @@ def get_recsys_model(recsys_type: str = None):
     elif (recsys_type == RecsysType.REDDIT.value
           or recsys_type == RecsysType.RANDOM.value):
         return None
+    elif recsys_type == RecsysType.WEIBO.value:
+        model = load_model('paraphrase-MiniLM-L6-v2')
+        return model
     else:
         raise ValueError(f"Unknown recsys type: {recsys_type}")
 
@@ -391,9 +394,9 @@ def rec_sys_weibo(
 ) -> List[List]:
 
     RECSYS_CONFIG = {
-        "reddit": {"enable": False, "rate": 0.4},
-        "personalized": {"enable": False, "rate": 0.0},
-        "random": {"enable": False, "rate": 0.2},
+        "reddit": {"enable": True, "rate": 0.4},
+        "personalized": {"enable": True, "rate": 0},
+        "random": {"enable": True, "rate": 0.2},
         "follow": {"enable": True, "rate": 0.4},
     }
 
@@ -763,7 +766,7 @@ def get_trace_contents(user_id, action, post_table, trace_table):
     """
     # Get post IDs from trace table for the given user and action
     trace_post_ids = [
-        trace['post_id'] for trace in trace_table
+        json.loads(trace['info'])['post_id'] for trace in trace_table
         if (trace['user_id'] == user_id and trace['action'] == action)
     ]
     # Fetch post contents from post table where post IDs match those in the
@@ -809,6 +812,9 @@ def rec_sys_personalized_with_trace(
     Returns:
         List[List]: Updated recommendation matrix.
     """
+    global model
+    if model is None or isinstance(model, tuple):
+        model = get_recsys_model(recsys_type="twitter")
 
     start_time = time.time()
 
@@ -880,7 +886,7 @@ def rec_sys_personalized_with_trace(
                 swap_free_ids = [
                     post_id for post_id in post_ids
                     if post_id not in rec_post_ids and post_id not in [
-                        trace['post_id']
+                        json.loads(trace['info'])['post_id']
                         for trace in trace_table if trace['user_id']
                     ]
                 ]
