@@ -226,47 +226,47 @@ async def main():
     await env.reset()
     update_follower_id_list()
 
-    # _log_persona(0, "智能体0")
-    # actions_1 = {
-    #     env.agent_graph.get_agent(0): ManualAction(
-    #         action_type=ActionType.CREATE_POST,
-    #         action_args={"content": "泰国和柬埔寨打起来了，大家怎么看？"},
-    #     )
-    # }
-    # target_agents = env.agent_graph.get_agents([1, 3, 5, 7, 9])
-    # actions_2 = {agent: LLMAction() for _, agent in target_agents}
-    # actions_3 = {
-    #     env.agent_graph.get_agent(1): ManualAction(
-    #         action_type=ActionType.CREATE_POST,
-    #         action_args={"content": "支持泰国打击柬埔寨电诈园区"},
-    #     )
-    # }
-    # actions_4 = {agent: LLMAction() for _, agent in env.agent_graph.get_agents()}
-    # actions_5 = {
-    #     env.agent_graph.get_agent(2): ManualAction(
-    #         action_type=ActionType.CREATE_POST,
-    #         action_args={"content": "大家用的手机上华为还是苹果？"},
-    #     )
-    # }
-    # actions_6 = {
-    #     env.agent_graph.get_agent(3): ManualAction(
-    #         action_type=ActionType.CREATE_POST,
-    #         action_args={"content": "泰国和柬埔寨说怎么打起来的？"},
-    #     )
-    # }
-    # actions_7 = {
-    #     env.agent_graph.get_agent(3): ManualAction(
-    #         action_type=ActionType.CREATE_POST,
-    #         action_args={"content": "这次冲突会不会影响到中国？"},
-    #     )
-    # }
-    # await env.step(actions_1)
-    # await env.step(actions_2)
-    # await env.step(actions_3)
-    # await env.step(actions_5)
-    # await env.step(actions_4)
-    # await env.step(actions_6)
-    # await env.step(actions_4)
+    _log_persona(0, "智能体0")
+    actions_1 = {
+        env.agent_graph.get_agent(6): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": "泰国和柬埔寨打起来了，大家怎么看？"},
+        )
+    }
+    target_agents = env.agent_graph.get_agents([1, 3, 5, 7, 9])
+    actions_2 = {agent: LLMAction() for _, agent in target_agents}
+    actions_3 = {
+        env.agent_graph.get_agent(74): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": "支持泰国打击柬埔寨电诈园区"},
+        )
+    }
+    actions_4 = {agent: LLMAction() for _, agent in env.agent_graph.get_agents()}
+    actions_5 = {
+        env.agent_graph.get_agent(2): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": "大家用的手机上华为还是苹果？"},
+        )
+    }
+    actions_6 = {
+        env.agent_graph.get_agent(3): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": "泰国和柬埔寨说怎么打起来的？"},
+        )
+    }
+    actions_7 = {
+        env.agent_graph.get_agent(3): ManualAction(
+            action_type=ActionType.CREATE_POST,
+            action_args={"content": "这次冲突会不会影响到中国？"},
+        )
+    }
+    await env.step(actions_1)
+    await env.step(actions_2)
+    await env.step(actions_3)
+    await env.step(actions_5)
+    await env.step(actions_4)
+    await env.step(actions_6)
+    await env.step(actions_4)
     # await env.step(actions_7)
     # await env.step(actions_4)
     # await env.step(actions_4)

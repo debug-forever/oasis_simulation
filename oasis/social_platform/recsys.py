@@ -21,6 +21,7 @@ from ast import literal_eval
 from datetime import datetime
 from math import log
 from typing import Any, Dict, List
+import json
 
 import numpy as np
 import torch
@@ -381,27 +382,72 @@ def concat_unique_2d_lists(*arrays):
 
 
 def rec_sys_weibo(
-    user_table: List[Dict[str, Any]],
-    post_table: List[Dict[str, Any]],
-    trace_table: List[Dict[str, Any]],
-    rec_matrix: List[List],
-    max_rec_post_len: int,
+    user_table,
+    post_table,
+    trace_table,
+    rec_matrix,
+    max_rec_post_len,
     swap_rate: float = 0.1,
 ) -> List[List]:
-    """
-    Weibo recommendation system combining Reddit-like, personalized, and random recommendations."""
-    algorithm_rate = [0.5, 0.3, 0.2]
-    algorithm_len = [int(max_rec_post_len * item) for item in algorithm_rate]
-    print(f"weibo recsys algorithm len: {algorithm_len}")
-    reddit_rec = rec_sys_reddit(post_table, rec_matrix, algorithm_len[0])
-    tweeit_rec = rec_sys_personalized_with_trace(
-                user_table, post_table, trace_table, rec_matrix,
-                algorithm_len[1])
-    random_rec = rec_sys_random(post_table, rec_matrix, max_rec_post_len - algorithm_len[0] - algorithm_len[1])
-    new_rec_matrix = concat_unique_2d_lists(reddit_rec, tweeit_rec, random_rec)
-    return new_rec_matrix
-    
 
+    RECSYS_CONFIG = {
+        "reddit": {"enable": False, "rate": 0.4},
+        "personalized": {"enable": False, "rate": 0.0},
+        "random": {"enable": False, "rate": 0.2},
+        "follow": {"enable": True, "rate": 0.4},
+    }
+
+    # 1️⃣ 计算每个算法的长度
+    algorithm_len = {
+        name: int(max_rec_post_len * cfg["rate"])
+        for name, cfg in RECSYS_CONFIG.items()
+    }
+
+    # print("weibo recsys algorithm len:", algorithm_len)
+
+    def empty_rec():
+        return [[] for _ in range(len(rec_matrix))]
+
+    # 2️⃣ 条件调用
+    reddit_rec = (
+        rec_sys_reddit(post_table, rec_matrix, algorithm_len["reddit"])
+        if RECSYS_CONFIG["reddit"]["enable"] and algorithm_len["reddit"] > 0
+        else empty_rec()
+    )
+
+    personalized_rec = (
+        rec_sys_personalized_with_trace(
+            user_table, post_table, trace_table, rec_matrix,
+            algorithm_len["personalized"], 0
+        )
+        if RECSYS_CONFIG["personalized"]["enable"] and algorithm_len["personalized"] > 0
+        else empty_rec()
+    )
+
+    random_rec = (
+        rec_sys_random(post_table, rec_matrix, algorithm_len["random"])
+        if RECSYS_CONFIG["random"]["enable"] and algorithm_len["random"] > 0
+        else empty_rec()
+    )
+
+    follow_rec = (
+        rec_sys_with_follow(
+            user_table, post_table, rec_matrix, algorithm_len["follow"]
+        )
+        if RECSYS_CONFIG["follow"]["enable"] and algorithm_len["follow"] > 0
+        else empty_rec()
+    )
+
+    new_rec_matrix = concat_unique_2d_lists(
+        reddit_rec,
+        personalized_rec,
+        random_rec,
+        follow_rec,
+    )
+
+    print("weibo recsys final rec matrix:", new_rec_matrix)
+
+    return new_rec_matrix
 
 def get_like_post_id(user_id, action, trace_table):
     """
@@ -845,3 +891,82 @@ def rec_sys_personalized_with_trace(
     end_time = time.time()
     print(f'Personalized recommendation time: {end_time - start_time:.6f}s')
     return new_rec_matrix
+
+def rec_sys_with_follow(
+    user_table: List[Dict[str, Any]],
+    post_table: List[Dict[str, Any]],
+    rec_matrix: List[Dict[str, Any]],  # 目前未使用，保留接口兼容
+    max_rec_post_len: int,
+) -> List[List[Any]]:
+    """
+    基于用户关注关系的推荐系统。
+    """
+
+    n_users = len(user_table)
+    new_rec_matrix: List[List[Any]] = [[] for _ in range(n_users)]
+
+    if not user_table or not post_table or max_rec_post_len <= 0:
+        return new_rec_matrix
+
+    # 1) user_id -> index 映射（用于把 follower_id 快速映射到 new_rec_matrix 的行）
+    user_id_to_index: Dict[Any, int] = {}
+    for idx, u in enumerate(user_table):
+        uid = u.get("user_id")
+        # 如果 user_id 缺失就跳过；如果重复，保留第一次出现（也可改为覆盖）
+        if uid is not None and uid not in user_id_to_index:
+            user_id_to_index[uid] = idx
+
+    # 2) post_table 末尾倒序取 max_rec_post_len 条（不足取全部）
+    #    例：post_table=[1,2,3,4], max=2 -> rec_posts=[4,3]
+    rec_posts = post_table[-max_rec_post_len:]
+    # print(" post:", rec_posts)
+
+    # 3) 为了避免同一个作者在多条 post 上重复 json.loads，做一个缓存
+    follower_cache: Dict[Any, List[Any]] = {}
+
+    for post in rec_posts:
+        author_id = post.get("user_id")
+        post_id = post.get("post_id")
+        if author_id is None or post_id is None:
+            continue
+
+        # 找到作者在 user_table 的行
+        author_index = user_id_to_index.get(author_id)
+        if author_index is None:
+            continue
+
+        # 解析作者的 follower_id_list（缓存）
+        if author_id in follower_cache:
+            followers = follower_cache[author_id]
+        else:
+            raw = user_table[author_index].get("follower_id_list", "[]")
+            followers: List[Any]
+            try:
+                if raw is None or raw == "":
+                    followers = []
+                elif isinstance(raw, list):
+                    # 如果你某些数据里已经是 list，这里也兼容
+                    followers = raw
+                else:
+                    followers = json.loads(raw)
+                    if not isinstance(followers, list):
+                        followers = []
+            except Exception:
+                followers = []
+
+            follower_cache[author_id] = followers
+        # print(" followers::", followers)
+
+        # 把该 post_id 推给每个 follower
+        for fid in followers:
+            follower_idx = user_id_to_index.get(fid)
+            if follower_idx is None:
+                # follower_id 不在 user_table 里就跳过
+                continue
+            new_rec_matrix[follower_idx].append(post_id)
+
+    # print("weibo recsys finished:", new_rec_matrix)
+
+    return new_rec_matrix
+
+
