@@ -13,6 +13,7 @@
 # =========== Copyright 2023 @ CAMEL-AI.org. All Rights Reserved. ===========
 import json
 from datetime import datetime
+import random
 
 from oasis.social_platform.typing import RecsysType
 
@@ -125,6 +126,11 @@ class PlatformUtils:
             )
             comments_results = self.db_cursor.fetchall()
 
+            MAX_COMMENTS = 8
+            # If there are too many comments, randomly sample a subset
+            if len(comments_results) > MAX_COMMENTS:
+                comments_results = random.sample(comments_results, MAX_COMMENTS)
+
             # Convert each comment's result into dictionary format
             comments = [{
                 "comment_id":
@@ -153,6 +159,8 @@ class PlatformUtils:
                 num_dislikes,
             ) in comments_results]
 
+            # post_content = content 
+            # num_reports = 0
             # Add warning message if the post has been reported
             if num_reports >= self.report_threshold:
                 warning_message = ("[Warning: This post has been reported"

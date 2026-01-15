@@ -28,6 +28,8 @@ import sqlite3
 import json
 import ast
 
+import sys, site
+
 # 强制配置 logging 输出流为我们修改过的 stdout
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, force=True)
 
@@ -40,7 +42,7 @@ from oasis.social_agent.weibo_generator import (generate_weibo_agent_graph,
                                                 get_default_weibo_actions)
 
 DATASET_PATH = Path("weibo_test/output.json")
-DB_PATH = Path("weibo_test/weibo_sim_vllm3.db")
+DB_PATH = Path("weibo_test/weibo_sim_vllm_0115_3.db")
 _EMOJI_PATTERN = re.compile(r"[\U00010000-\U0010FFFF]")
 
 
@@ -117,10 +119,17 @@ def build_llm_model():
     return ModelFactory.create(
         model_platform=ModelPlatformType.VLLM,
         model_type="./Qwen3-4B-Instruct-2507",
+        # model_type="Qwen/Qwen3-4B",
         # model_config_dict={"max_tokens": 8192},
         # TODO: change to your own vllm server url
         url="http://localhost:8192/v1",
     )
+    # return ModelFactory.create(
+    #     model_platform=ModelPlatformType.QWEN,
+    #     model_type="qwen-flash",
+    #     url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    #     api_key="sk-91b5d5589e064420bb09a6c0090bb199"
+    # )
 
 
 def _prepare_database():
@@ -267,9 +276,9 @@ async def main():
     await env.step(actions_4)
     await env.step(actions_6)
     await env.step(actions_4)
-    # await env.step(actions_7)
-    # await env.step(actions_4)
-    # await env.step(actions_4)
+    await env.step(actions_7)
+    for time_step in range(17):
+        await env.step(actions_4)
 
     await env.close()
     print(f"微博 OpenAI/兼容实验结束，数据库位置：{DB_PATH}")

@@ -250,7 +250,7 @@ def rec_sys_reddit(post_table: List[Dict[str, Any]], rec_matrix: List[List],
                                             created_at_dt)
             all_hot_score.append((hot_score, post['post_id']))
         # Sort
-        top_posts = heapq.nlargest(max_rec_post_len,
+        top_posts = heapq.nlargest(max_rec_post_len*5,
                                    all_hot_score,
                                    key=lambda x: x[0])
         top_post_ids = [post_id for _, post_id in top_posts]
@@ -259,6 +259,11 @@ def rec_sys_reddit(post_table: List[Dict[str, Any]], rec_matrix: List[List],
         # recommendations, each user gets a specified number of post IDs
         # randomly
         new_rec_matrix = [top_post_ids] * len(rec_matrix)
+
+    for user_idx in range(len(rec_matrix)):
+        if len(new_rec_matrix[user_idx]) > max_rec_post_len:
+            new_rec_matrix[user_idx] = random.sample(new_rec_matrix[user_idx],
+                                                    max_rec_post_len)
 
     return new_rec_matrix
 
@@ -358,8 +363,8 @@ def rec_sys_personalized(user_table: List[Dict[str, Any]],
 
 def concat_unique_2d_lists(*arrays):
     """Concatenate multiple 2D lists, removing duplicates within each row."""
-    for arr in arrays:
-        print("array len:", len(arr))
+    # for arr in arrays:
+    #     print("array len:", len(arr))
     if not arrays:
         return []
 
@@ -394,10 +399,10 @@ def rec_sys_weibo(
 ) -> List[List]:
 
     RECSYS_CONFIG = {
-        "reddit": {"enable": True, "rate": 0.4},
-        "personalized": {"enable": True, "rate": 0},
-        "random": {"enable": True, "rate": 0.2},
-        "follow": {"enable": True, "rate": 0.4},
+        "reddit": {"enable": True, "rate": 0.3},
+        "personalized": {"enable": False, "rate": 0},
+        "random": {"enable": False, "rate": 0.2},
+        "follow": {"enable": True, "rate": 0.5},
     }
 
     # 1️⃣ 计算每个算法的长度
@@ -425,7 +430,7 @@ def rec_sys_weibo(
         )
         if RECSYS_CONFIG["personalized"]["enable"] and algorithm_len["personalized"] > 0
         else empty_rec()
-    )
+    ) 
 
     random_rec = (
         rec_sys_random(post_table, rec_matrix, algorithm_len["random"])
@@ -448,7 +453,7 @@ def rec_sys_weibo(
         follow_rec,
     )
 
-    print("weibo recsys final rec matrix:", new_rec_matrix)
+    # print("weibo recsys final rec matrix:", new_rec_matrix)
 
     return new_rec_matrix
 
@@ -924,7 +929,7 @@ def rec_sys_with_follow(
 
     # 2) post_table 末尾倒序取 max_rec_post_len 条（不足取全部）
     #    例：post_table=[1,2,3,4], max=2 -> rec_posts=[4,3]
-    rec_posts = post_table[-max_rec_post_len:]
+    rec_posts = post_table[-max_rec_post_len*5:]
     # print(" post:", rec_posts)
 
     # 3) 为了避免同一个作者在多条 post 上重复 json.loads，做一个缓存
@@ -972,6 +977,10 @@ def rec_sys_with_follow(
             new_rec_matrix[follower_idx].append(post_id)
 
     # print("weibo recsys finished:", new_rec_matrix)
+    for user_idx in range(len(new_rec_matrix)):
+        # 随机 max_rec_post_len
+        if len(new_rec_matrix[user_idx]) > max_rec_post_len:
+            new_rec_matrix[user_idx] = random.sample(new_rec_matrix[user_idx], max_rec_post_len)
 
     return new_rec_matrix
 

@@ -277,7 +277,7 @@ class Platform:
                 selected_post_ids = random.sample(selected_post_ids,
                                                   self.refresh_rec_post_count)
 
-            if self.recsys_type != RecsysType.REDDIT and self.recsys_type != RecsysType.WEIBO:
+            if self.recsys_type != RecsysType.REDDIT:
                 # Retrieve posts from following (in network)
                 # Modify the SQL query so that the refresh gets posts from
                 # people the user follows, sorted by the number of likes on
@@ -384,7 +384,7 @@ class Platform:
             raise ValueError("Unsupported recommendation system type, please "
                              "check the `RecsysType`.")
         
-        print("weibo new rec matrix:", new_rec_matrix)
+        # print("weibo new rec matrix:", new_rec_matrix)
 
         sql_query = "DELETE FROM rec"
         # Execute the SQL statement using the _execute_db_command function

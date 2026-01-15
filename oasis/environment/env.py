@@ -104,7 +104,7 @@ class OasisEnv:
                     recsys_type="weibo",
                     allow_self_rating=False,
                     show_score=False,
-                    max_rec_post_len=100,
+                    max_rec_post_len=10,
                     refresh_rec_post_count=5,
                 )
                 setattr(self.platform, "platform_type", DefaultPlatformType.WEIBO)

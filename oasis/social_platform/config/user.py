@@ -101,7 +101,7 @@ Please perform actions by tool calling.
 
         system_content = f"""
 # OBJECTIVE
-You're a Reddit user, and I'll present you with some tweets. After you see the tweets, choose some actions from the following functions.
+You're a Weibo user, and I'll present you with some posts. After you see the posts, choose some actions from the following functions.
 
 # SELF-DESCRIPTION
 Your actions should be consistent with your self-description and personality.
