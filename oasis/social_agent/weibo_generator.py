@@ -260,12 +260,16 @@ async def generate_weibo_agent_graph(
     agent_graph: AgentGraph | None = None,
     model=None,
     available_actions: list[ActionType] | None = None,
+    num_agents: int | None = None,
 ) -> AgentGraph:
     records = load_weibo_dataset(dataset_path)
     if agent_graph is None:
         agent_graph = AgentGraph()
     if available_actions is None:
         available_actions = get_default_weibo_actions()
+
+    if num_agents is not None:
+        records = records[:num_agents]
 
     for idx, record in enumerate(records):
         base_info = _get_section(record, "个人基本信息", "个人基础信息")
