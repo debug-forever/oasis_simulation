@@ -32,7 +32,7 @@ jobs:
           sudo apt-get install -y libcairo2-dev libpango1.0-dev pkg-config python3-dev
 
       - name: Install dependencies
-        run: poetry install --no-interaction
+        run: poetry install --no-interaction --no-root
 
       - name: Install pre-commit
         run: pip install pre-commit
