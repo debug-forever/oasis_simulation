@@ -99,3 +99,10 @@ models/
 *.sqlite
 
 tmp
+
+# Visualization system - large files and build artifacts
+visualization_system/backend/debug_startup.log
+visualization_system/backend/__pycache__/
+visualization_system/frontend/node_modules/
+visualization_system/frontend/dist/
+visualization_system/frontend/.vite/
