@@ -399,10 +399,10 @@ def rec_sys_weibo(
 ) -> List[List]:
 
     RECSYS_CONFIG = {
-        "reddit": {"enable": True, "rate": 0.3},
+        "reddit": {"enable": True, "rate": 0.6},
         "personalized": {"enable": False, "rate": 0},
-        "random": {"enable": False, "rate": 0.2},
-        "follow": {"enable": True, "rate": 0.5},
+        "random": {"enable": True, "rate": 0.4},
+        "follow": {"enable": False, "rate": 0.5},
     }
 
     # 1️⃣ 计算每个算法的长度
