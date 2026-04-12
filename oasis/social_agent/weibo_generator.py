@@ -17,7 +17,7 @@ SECTION_ALIASES = {
     "个人基本信息": ["个人基础信息", "���˻�����Ϣ"],
     "社交影响力": ["社会影响力", "�罻Ӱ����"],
     "用户行为特征": ["�û���Ϊ����"],
-    "标签特征": ["标签信息", "��ǩ����", "��ǩ��Ϣ"],
+    "标签特征": ["标签信息", "特征标签", "��ǩ����", "��ǩ��Ϣ"],
     "关注博主信息": ["��ע������Ϣ"],
     "近期发帖内容分析": ["���ڷ������ݷ���"],
 }
@@ -146,7 +146,12 @@ def load_weibo_dataset(dataset_path: str) -> list[dict[str, Any]]:
     path = Path(dataset_path)
     if not path.exists():
         raise FileNotFoundError(f"未找到数据文件：{dataset_path}")
-    data = json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # JSONL format: one JSON object per line
+        data = [json.loads(line) for line in text.splitlines() if line.strip()]
     if not isinstance(data, list):
         raise ValueError("微博数据格式错误，应为列表")
     return [record for record in data if isinstance(record, dict)]
