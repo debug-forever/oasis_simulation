@@ -1128,7 +1128,7 @@ dynamic_html = dynamic_html_template.replace(
 )
 
 # 保存动态HTML文件
-dynamic_html_file = 'transfer_tree_vis/Weibo_tree_dynamic.html'
+dynamic_html_file = 'transfer_tree_vis/tree_dynamic.html'
 with open(dynamic_html_file, 'w', encoding='utf-8') as f:
     f.write(dynamic_html)
 print(f"Dynamic visualization generated: {dynamic_html_file}")
@@ -1205,6 +1205,6 @@ c = (
     )
 )
 
-output_file = "transfer_tree_vis/Weibo_tree.html"
+output_file = "transfer_tree_vis/tree.html"
 c.render(output_file)
 print(f"Visualization generated: {output_file}")
