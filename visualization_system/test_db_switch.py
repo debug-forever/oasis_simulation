@@ -47,7 +47,7 @@ def test_switch_db(db_path):
         
         if response.status_code == 200:
             data = response.json()
-            print(f"✅ 切换成功!")
+            print("✅ 切换成功!")
             print(f"新数据库: {data.get('db_path')}")
             
             if data.get('stats'):
@@ -78,7 +78,7 @@ def test_dashboard_data():
         
         if response.status_code == 200:
             data = response.json()
-            print(f"✅ Dashboard API正常!")
+            print("✅ Dashboard API正常!")
             print(f"总用户数: {data.get('total_users', 0)}")
             print(f"总帖子数: {data.get('total_posts', 0)}")
             print(f"总评论数: {data.get('total_comments', 0)}")

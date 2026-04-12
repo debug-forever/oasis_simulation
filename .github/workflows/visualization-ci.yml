@@ -2,13 +2,11 @@ name: Visualization System CI
 
 on:
   push:
-    branches: [main]
-    paths:
-      - "visualization_system/**"
+    branches:
+      - main
   pull_request:
-    branches: [main]
-    paths:
-      - "visualization_system/**"
+    branches:
+      - main
 
 jobs:
   backend-check:
