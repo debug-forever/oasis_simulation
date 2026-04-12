@@ -11,7 +11,7 @@ from pyecharts.globals import ThemeType
 # ==========================================
 # 1. 连数据库取数
 # ==========================================
-db_path = 'weibo_sim_vllm_api1.db' 
+db_path = './weibo_test/weibo_sim_qwen_huawei1.db' 
 conn = sqlite3.connect(db_path)
 
 # 1.1 查用户表
