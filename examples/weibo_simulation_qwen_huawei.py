@@ -1,4 +1,4 @@
-"""使用微博标注数据运行 Qwen API 代理的华为话题模拟，所有输出均为中文。"""
+"""华为话题模拟"""
 from __future__ import annotations
 
 import asyncio
