@@ -99,3 +99,6 @@ models/
 *.sqlite
 
 tmp
+
+agents.md
+worklogs/
