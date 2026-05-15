@@ -173,4 +173,61 @@ export const simulationAPI = {
 }
 
 
+// ========== 可视分析 API ==========
+// 舆情生命周期 / 关键群体识别 / 关键用户识别
+
+export const vaAPI = {
+    // 分析层构建状态
+    getStatus() {
+        return api.get('/va/status')
+    },
+
+    // 一键构建/重建分析表（ETL）
+    build(profileJson = null) {
+        return api.post('/va/build', { profile_json: profileJson }, { timeout: 600000 })
+    },
+
+    // 维度目录（可分析空间）
+    getCatalog() {
+        return api.get('/va/catalog')
+    },
+
+    // 通用维度聚合查询
+    explore(spec) {
+        return api.post('/va/explore', spec)
+    },
+
+    // 舆情生命周期（需求1）
+    getLifecycle(breakdown = 'event.action_type', filters = null) {
+        const params = { breakdown }
+        if (filters && filters.length) params.filters = JSON.stringify(filters)
+        return api.get('/va/lifecycle', { params })
+    },
+
+    // 关键群体识别（需求2）
+    getKeyGroups(groupBy = 'user.profession', filters = null, phase = null) {
+        const params = { group_by: groupBy }
+        if (filters && filters.length) params.filters = JSON.stringify(filters)
+        if (phase) params.phase = phase
+        return api.get('/va/key-groups', { params })
+    },
+
+    // 关键用户识别（需求3）
+    getKeyUsers(opts = {}) {
+        const params = {
+            role: opts.role || 'all',
+            sort_by: opts.sortBy || 'influence_score',
+            limit: opts.limit || 50
+        }
+        if (opts.filters && opts.filters.length) params.filters = JSON.stringify(opts.filters)
+        if (opts.phase) params.phase = opts.phase
+        return api.get('/va/key-users', { params })
+    },
+
+    // 个体下钻
+    getUserDetail(userId) {
+        return api.get(`/va/user/${userId}`)
+    }
+}
+
 export default api

@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python *)",
+      "Bash(LOKY_MAX_CPU_COUNT=4 python build_dashboard_data.py)",
+      "Bash(kill %1)",
+      "Bash(jobs -p)",
+      "Bash(xargs -r kill)",
+      "Bash(powershell *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{size_download}\\\\n\" \"http://localhost:8765/\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{size_download}\\\\n\" \"http://localhost:8765/data/lifecycle.json\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{size_download}\\\\n\" \"http://localhost:8765/data/risk.json\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{size_download}\\\\n\" \"http://localhost:8765/data/group_radars.json\")",
+      "PowerShell(python -c \"import community as c; print\\('python-louvain:', hasattr\\(c,'best_partition'\\), getattr\\(c,'__version__','?'\\)\\)\")",
+      "PowerShell(python -c \"import networkx as nx; print\\('networkx:', nx.__version__\\); from networkx.algorithms.community import louvain_communities; print\\('nx.louvain_communities OK'\\)\")",
+      "Bash(playwright install *)",
+      "Bash(timeout 120 bash *)",
+      "Bash(rm -f _verify.py _verify_*.png)",
+      "Bash(ls _verify*)",
+      "Bash(OASIS_DB_PATH=\"C:\\\\Users\\\\WangKengyi\\\\oasis_simulation\\\\weibo_test\\\\weibo_sim_qwen_huawei.db\" python -m uvicorn main:app --host 127.0.0.1 --port 8011 --log-level warning)",
+      "Bash(curl -s http://127.0.0.1:8011/api/va/status)",
+      "Bash(curl -s -X POST http://127.0.0.1:8011/api/va/build -H \"Content-Type: application/json\" -d \"{}\")",
+      "Bash(curl -s http://127.0.0.1:8011/api/va/catalog)",
+      "Bash(curl -s \"http://127.0.0.1:8011/api/va/lifecycle?breakdown=post.sentiment_class\")",
+      "Bash(curl -s \"http://127.0.0.1:8011/api/va/key-groups?group_by=user.role\")",
+      "Bash(curl -s \"http://127.0.0.1:8011/api/va/key-users?role=%E6%84%8F%E8%A7%81%E9%A2%86%E8%A2%96&limit=3\")",
+      "Bash(curl -s -X POST http://127.0.0.1:8011/api/va/explore -H \"Content-Type: application/json\" -d \"{\\\\\"rows\\\\\":[\\\\\"time.phase\\\\\"],\\\\\"col\\\\\":\\\\\"post.sentiment_class\\\\\",\\\\\"measure\\\\\":\\\\\"count_events\\\\\"}\")",
+      "Bash(curl -s http://127.0.0.1:8011/api/va/user/9)",
+      "Bash(npm run *)",
+      "Bash(curl -s \"http://127.0.0.1:8011/api/va/key-groups?group_by=user.influence_tier&filters=%5B%7B%22dim%22%3A%22user.behavior_label%22%2C%22values%22%3A%5B%22%E6%B4%BB%E8%B7%83%E4%BA%92%E5%8A%A8%E8%80%85%22%5D%7D%5D\")",
+      "Bash(curl -s \"http://127.0.0.1:8011/api/va/key-users?role=all&sort_by=pagerank&phase=%E7%88%86%E5%8F%91%E6%9C%9F&limit=3&filters=%5B%7B%22dim%22%3A%22user.influence_tier%22%2C%22values%22%3A%5B%22%E5%A4%B4%E9%83%A8%22%5D%7D%5D\")",
+      "Bash(curl -s -X POST http://127.0.0.1:8011/api/va/explore -H \"Content-Type: application/json\" -d \"{\\\\\"rows\\\\\":[\\\\\"user.behavior_label\\\\\"],\\\\\"measure\\\\\":\\\\\"count_users\\\\\"}\")",
+      "Bash(curl -s \"http://127.0.0.1:8011/api/va/lifecycle?breakdown=event.action_type\")",
+      "Bash(curl -s -m 2 http://127.0.0.1:8000/health -o nul -w \"8000:%{http_code}\\\\n\")",
+      "Bash(curl -s -m 2 http://127.0.0.1:8001/health -o nul -w \"8001:%{http_code}\\\\n\")",
+      "Bash(curl -s -m 3 http://127.0.0.1:8001/health -o nul -w \"health:%{http_code}\\\\n\")",
+      "Bash(curl -s -m 3 http://127.0.0.1:8001/api/va/status -w \"\\\\n\")",
+      "PowerShell(Get-NetTCPConnection *)"
+    ]
+  }
+}

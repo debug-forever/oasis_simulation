@@ -30,6 +30,21 @@ const routes = [
         path: '/network',
         name: 'Network',
         component: () => import('@/views/Network.vue')
+    },
+    {
+        path: '/lifecycle',
+        name: 'Lifecycle',
+        component: () => import('@/views/Lifecycle.vue')
+    },
+    {
+        path: '/key-groups',
+        name: 'KeyGroups',
+        component: () => import('@/views/KeyGroups.vue')
+    },
+    {
+        path: '/key-users',
+        name: 'KeyUsers',
+        component: () => import('@/views/KeyUsers.vue')
     }
 ]
 

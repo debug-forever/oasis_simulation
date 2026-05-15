@@ -46,6 +46,23 @@
             <span class="menu-icon">🔗</span>
             <span>关系网络</span>
           </el-menu-item>
+
+          <div class="menu-group-label">可视分析</div>
+
+          <el-menu-item index="/lifecycle">
+            <span class="menu-icon">📈</span>
+            <span>舆情生命周期</span>
+          </el-menu-item>
+
+          <el-menu-item index="/key-groups">
+            <span class="menu-icon">🎯</span>
+            <span>关键群体识别</span>
+          </el-menu-item>
+
+          <el-menu-item index="/key-users">
+            <span class="menu-icon">⭐</span>
+            <span>关键用户识别</span>
+          </el-menu-item>
         </el-menu>
         
         <div class="sidebar-footer">
@@ -94,7 +111,10 @@ const pageTitles = {
   '/users': '用户列表',
   '/posts': '内容列表',
   '/propagation': '传播图谱',
-  '/network': '关系网络'
+  '/network': '关系网络',
+  '/lifecycle': '舆情生命周期',
+  '/key-groups': '关键群体识别',
+  '/key-users': '关键用户识别'
 }
 
 const currentRoute = computed(() => route.path)
@@ -188,6 +208,15 @@ const handleMenuSelect = (index) => {
 .menu-icon {
   font-size: 18px;
   margin-right: var(--spacing-sm);
+}
+
+.menu-group-label {
+  padding: var(--spacing-md) var(--spacing-lg) var(--spacing-xs);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  text-transform: uppercase;
 }
 
 .sidebar-footer {
