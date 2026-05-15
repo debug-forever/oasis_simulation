@@ -26,12 +26,23 @@ class DatabaseManager:
             DEFAULT_DB_PATH = r"E:\Project\oasis_simulation\visualization_system\weibo_sim_vllm_api1.db"
             # ========================================
             
+            # 相对于本文件定位仓库根目录下的 weibo_test/，避免受启动 cwd 影响
+            _repo_root = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", "..")
+            )
+            _weibo_test = os.path.join(_repo_root, "weibo_test")
+
             # 尝试多个可能的数据库位置
             possible_paths = [
-                # 最高优先级：上面设置的默认路径
-                DEFAULT_DB_PATH,
-                # 其次：环境变量
+                # 最高优先级：环境变量
                 os.environ.get("OASIS_DB_PATH"),
+                # 其次：上面设置的默认路径
+                DEFAULT_DB_PATH,
+                # 仓库自带的样例库（按文件路径解析，cwd 无关）
+                os.path.join(_weibo_test, "weibo_sim_qwen_huawei.db"),
+                os.path.join(_weibo_test, "weibo_sim_openai.db"),
+                os.path.join(_weibo_test, "weibo_sim_vllm.db"),
+                os.path.join(_weibo_test, "weibo_sim_demo.db"),
                 # 最后：其他常见位置（用于回退）
                 r"E:\Project\oasis_simulation\weibo_test\weibo_sim_demo.db",
                 "weibo_test/weibo_sim_demo.db",

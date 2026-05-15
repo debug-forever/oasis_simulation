@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 # 使用绝对导入避免相对导入问题
-from api import users, posts, analytics, simulation, network
+from api import users, posts, analytics, simulation, network, va
 from database.db_manager import get_db_manager
 
 # 创建FastAPI应用
@@ -41,6 +41,7 @@ app.include_router(posts.router)
 app.include_router(analytics.router)
 app.include_router(simulation.router)  # 新增：模拟功能
 app.include_router(network.router)  # 新增：网络分析功能
+app.include_router(va.router)  # 新增：可视分析（生命周期/关键群体/关键用户）
 
 
 @app.get("/")
@@ -108,4 +109,5 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 端口需与前端 vite.config.js 的代理 target 一致（8001）
+    uvicorn.run(app, host="0.0.0.0", port=8001)
