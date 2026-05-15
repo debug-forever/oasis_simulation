@@ -58,8 +58,11 @@ from camel.types import ModelPlatformType, ModelType
 
 import oasis
 from oasis import ActionType, LLMAction, ManualAction
-from oasis.social_agent.weibo_generator import (generate_weibo_agent_graph,
-                                                get_default_weibo_actions)
+from oasis.weibo import (
+    WeiboSocialAgent,
+    generate_weibo_agent_graph,
+    get_default_weibo_actions,
+)
 
 DATASET_PATH = Path("weibo_test/total_data_with_descriptions_transformers.json")
 DB_PATH = Path("weibo_test/weibo_sim_vllm.db")
@@ -114,7 +117,7 @@ def _summarize_tags(record: dict) -> str:
 def _describe_persona(record_idx: int) -> str:
     if not WEIBO_RECORDS: return "默认用户"
     record = WEIBO_RECORDS[record_idx % len(WEIBO_RECORDS)]
-    base_info = _get_section(record, "个人基本信息", "个人基础信息")
+    base_info = _get_section(record, "个人基本信息")
     username = str(base_info.get("用户名") or f"微博用户{record_idx}")
     profile = str(base_info.get("用户简介") or "暂无简介")
     tags_line = _summarize_tags(record)
@@ -137,16 +140,18 @@ def build_vllm_manager() -> ModelManager:
     # 默认尝试连接本地 8000 端口
     endpoints = os.getenv("WEIBO_VLLM_ENDPOINTS", "http://127.0.0.1:8000/v1")
     model_name = os.getenv("WEIBO_VLLM_MODEL", "qwen-2") # 你的模型名称，如 Qwen/Qwen2.5-7B-Instruct
+    max_tokens = int(os.getenv("WEIBO_MAX_TOKENS", "4096"))
     
     urls = [url.strip() for url in endpoints.split(",") if url.strip()]
     
-    print(f"🔌 正在连接 vLLM 端点: {urls}, 模型: {model_name}")
+    print(f"🔌 正在连接 vLLM 端点: {urls}, 模型: {model_name}, max_tokens: {max_tokens}")
     
     models = [
         ModelFactory.create(
             model_platform=ModelPlatformType.VLLM,
             model_type=model_name,
             url=url,
+            model_config_dict={"max_tokens": max_tokens},
         ) for url in urls
     ]
     
@@ -190,6 +195,7 @@ async def main():
         dataset_path=str(DATASET_PATH),
         model=shared_model_manager, 
         available_actions=available_actions,
+        agent_cls=WeiboSocialAgent,
     )
 
     env = oasis.make(

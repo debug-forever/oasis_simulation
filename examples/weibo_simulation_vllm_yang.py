@@ -33,7 +33,7 @@ import sys, site
 # 强制配置 logging 输出流为我们修改过的 stdout
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, force=True)
 
-from camel.models import ModelFactory
+from camel.models import ModelFactory, ModelManager
 from camel.types import ModelPlatformType, ModelType
 
 import oasis
@@ -41,8 +41,8 @@ from oasis import ActionType, LLMAction, ManualAction
 from oasis.social_agent.weibo_generator import (generate_weibo_agent_graph,
                                                 get_default_weibo_actions)
 
-DATASET_PATH = Path("weibo_test/output.json")
-DB_PATH = Path("weibo_test/weibo_sim_vllm_0115_3.db")
+DATASET_PATH = Path("weibo_test/output2.json")
+DB_PATH = Path("weibo_test/weibo_sim_vllm_0409_2.db")
 _EMOJI_PATTERN = re.compile(r"[\U00010000-\U0010FFFF]")
 
 
@@ -114,21 +114,44 @@ def _compose_post_content(record_idx: int, fallback: str) -> str:
     raw_text = _pick_post_text(record_idx, fallback)
     return raw_text if raw_text else fallback
 
-
-def build_llm_model():
-    return ModelFactory.create(
+vllm_model_1 = ModelFactory.create(
         model_platform=ModelPlatformType.VLLM,
         model_type="./Qwen3-4B-Instruct-2507",
-        # model_type="Qwen/Qwen3-4B",
         # model_config_dict={"max_tokens": 8192},
-        # TODO: change to your own vllm server url
         url="http://localhost:8192/v1",
     )
+
+vllm_model_2 = ModelFactory.create(
+        model_platform=ModelPlatformType.VLLM,
+        model_type="./Qwen3-4B-Instruct-2507",
+        # model_config_dict={"max_tokens": 8192},
+        url="http://localhost:8193/v1",
+    )
+
+vllm_model_3 = ModelFactory.create(
+        model_platform=ModelPlatformType.VLLM,
+        model_type="./Qwen3-4B-Instruct-2507",
+        # model_config_dict={"max_tokens": 8192},
+        url="http://localhost:8194/v1",
+    )
+
+shared_model_manager = ModelManager(
+        models=[vllm_model_1, vllm_model_2, vllm_model_3],
+        scheduling_strategy='round_robin',
+    )
+
+# def build_llm_model():
+#     return ModelFactory.create(
+#         model_platform=ModelPlatformType.VLLM,
+#         model_type="./Qwen3-4B-Instruct-2507",
+#         # model_config_dict={"max_tokens": 8192},
+#         url="http://localhost:8192/v1",
+#     )
     # return ModelFactory.create(
     #     model_platform=ModelPlatformType.QWEN,
     #     model_type="qwen-flash",
     #     url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    #     api_key="sk-91b5d5589e064420bb09a6c0090bb199"
+    #     api_key="sk-fcd05c928f294cf1a5c7022049129d7a"
     # )
 
 
@@ -216,7 +239,8 @@ async def main():
         print("❌ 数据集为空，程序终止")
         return
 
-    llm_model = build_llm_model()
+    llm_model = shared_model_manager
+    # llm_model = build_llm_model()
     available_actions = get_default_weibo_actions()
     _prepare_database()
 
@@ -269,16 +293,38 @@ async def main():
             action_args={"content": "这次冲突会不会影响到中国？"},
         )
     }
+    actions_8 = {
+        env.agent_graph.get_agent(5): ManualAction(
+            action_type=ActionType.FOLLOW,
+            action_args={"followee_id": "4"},
+        )
+    }
+    actions_9 = {
+        env.agent_graph.get_agent(5): ManualAction(
+            action_type=ActionType.FOLLOW,
+            action_args={"followee_id": "8"},
+        )
+    }
+    actions_10 = {
+        env.agent_graph.get_agent(8): ManualAction(
+            action_type=ActionType.FOLLOW,
+            action_args={"followee_id": "2"},
+        )
+    }
+    # await env.step(actions_8)
+    # await env.step(actions_9)
+    # await env.step(actions_10)
+    # await env.step(actions_4)
     await env.step(actions_1)
     await env.step(actions_2)
     await env.step(actions_3)
     await env.step(actions_5)
     await env.step(actions_4)
-    await env.step(actions_6)
-    await env.step(actions_4)
-    await env.step(actions_7)
-    for time_step in range(17):
-        await env.step(actions_4)
+    # await env.step(actions_6)
+    # await env.step(actions_4)
+    # await env.step(actions_7)
+    # for time_step in range(3):
+    #     await env.step(actions_4)
 
     await env.close()
     print(f"微博 OpenAI/兼容实验结束，数据库位置：{DB_PATH}")
