@@ -1,21 +1,5 @@
-"""
-可视分析数据富化层 (ETL)
-=========================
-
-把 OASIS 仿真原始库 (user / post / follow / like / comment / trace / rec)
-重构成一组面向「可视分析」的维度模型表，全部以 ``va_`` 前缀写回**同一个**库文件，
-不破坏原表，原有可视化页面照常工作。
-
-产出表：
-    va_meta            构建元信息 + 生命周期阶段边界
-    va_event_fact      统一事实表（一行一个行为事件）
-    va_user_dim        用户维度（画像 + 社群 + 影响力分层 + 行为标签 + 关键角色）
-    va_post_dim        内容维度（话题 + 情感 + 级联指标 + 所属阶段）
-    va_community_dim   社群维度（规模 + 主导话题/情感 + 极化指数）
-
-设计原则：所有耗时计算（社群检测、情感打分、级联指标、生命周期分期）在此一次性
-离线完成并落库，API 层只做轻量聚合查询，不阻塞页面。
-"""
+"""Build va_* analysis tables inside an OASIS simulation database."""
+import logging
 import os
 import sys
 import json
@@ -24,7 +8,6 @@ import sqlite3
 from datetime import datetime
 from collections import defaultdict, Counter
 
-# 允许以脚本或模块两种方式运行
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
@@ -36,11 +19,10 @@ except ImportError:  # pragma: no cover
     nx = None
 
 
-# ---------------------------------------------------------------------------
-# 工具函数
-# ---------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
+
+
 def parse_ts(s):
-    """'2026-03-25 15:30:15.732250' -> datetime，失败返回 None"""
     if not s:
         return None
     try:
@@ -65,9 +47,6 @@ def quantile_tier(value, q_top, q_mid):
     return "长尾"
 
 
-# ---------------------------------------------------------------------------
-# 生命周期分期
-# ---------------------------------------------------------------------------
 def compute_phases(event_dts):
     """
     根据事件量随时间的曲线，把整个舆情过程切成 潜伏期 / 爆发期 / 扩散期 / 衰退期。
@@ -82,7 +61,6 @@ def compute_phases(event_dts):
     PHASE_NAMES = ["潜伏期", "爆发期", "扩散期", "衰退期"]
     dts = sorted([d for d in event_dts if d is not None])
     if len(dts) < 8:
-        # 数据太少，按事件数四等分
         n = len(dts)
         if n == 0:
             return [], lambda d: "潜伏期"
@@ -145,9 +123,6 @@ def compute_phases(event_dts):
     return phases, assign
 
 
-# ---------------------------------------------------------------------------
-# 级联指标
-# ---------------------------------------------------------------------------
 def compute_cascades(posts):
     """
     posts: [{post_id, original_post_id, ...}]
@@ -161,7 +136,6 @@ def compute_cascades(posts):
             children[op].append(p["post_id"])
             parent[p["post_id"]] = op
 
-    # 找根
     def find_root(pid):
         seen = set()
         while pid in parent and pid not in seen:
@@ -172,7 +146,6 @@ def compute_cascades(posts):
     result = {}
     roots = [p["post_id"] for p in posts if p["original_post_id"] is None]
     for root in roots:
-        # BFS 收集整棵树 + 深度
         tree_nodes = []
         depth_of = {root: 0}
         queue = [root]
@@ -184,7 +157,6 @@ def compute_cascades(posts):
                 queue.append(ch)
         size = len(tree_nodes)
         max_depth = max(depth_of.values()) if depth_of else 0
-        # 结构病毒性：树上所有节点对的平均距离（Wiener 指数 / n(n-1)）
         sv = 0.0
         if size > 1 and nx is not None:
             g = nx.Graph()
@@ -210,7 +182,6 @@ def compute_cascades(posts):
                 "cascade_depth": max_depth,
                 "structural_virality": sv,
             }
-    # 兜底（孤立帖）
     for p in posts:
         result.setdefault(p["post_id"], {
             "root_post_id": find_root(p["post_id"]),
@@ -221,11 +192,7 @@ def compute_cascades(posts):
     return result
 
 
-# ---------------------------------------------------------------------------
-# 用户画像 JSON（可选，尽力匹配）
-# ---------------------------------------------------------------------------
 def load_profiles(json_path):
-    """读取用户画像 NDJSON，返回 {用户名: {gender,region,profession,...}}"""
     if not json_path or not os.path.exists(json_path):
         return {}
     profiles = {}
@@ -257,25 +224,17 @@ def load_profiles(json_path):
                         "account_type": (obj.get("账号类型与层级", {}) or {}).get("账号类型") or "未知",
                         "content_preference": pref or "未知",
                     }
-    except Exception as e:
-        print(f"[ETL] 用户画像 JSON 解析失败（忽略）: {e}")
+    except Exception:
+        logger.warning("用户画像 JSON 解析失败，已忽略", exc_info=True)
     return profiles
 
 
-# ---------------------------------------------------------------------------
-# 主流程
-# ---------------------------------------------------------------------------
 def build_analysis_db(db_path, profile_json_path=None, verbose=True):
-    """对指定 SQLite 库构建 va_* 分析表。"""
     def log(*a):
         if not verbose:
             return
         msg = "[ETL] " + " ".join(str(x) for x in a)
-        try:
-            print(msg)
-        except UnicodeEncodeError:
-            # Windows GBK 控制台兜底
-            sys.stdout.buffer.write(msg.encode("utf-8", "replace") + b"\n")
+        logger.info(msg)
 
     if not os.path.exists(db_path):
         raise FileNotFoundError(db_path)
@@ -283,7 +242,6 @@ def build_analysis_db(db_path, profile_json_path=None, verbose=True):
     conn = sqlite3.connect(db_path)
     log(f"打开数据库: {db_path}")
 
-    # ---- 1. 读取原始数据 ------------------------------------------------
     users = _rows(conn, "SELECT user_id, agent_id, user_name, name, bio, "
                         "num_followings, num_followers, weibo_id FROM user")
     posts = _rows(conn, "SELECT post_id, user_id, original_post_id, content, "
@@ -301,7 +259,6 @@ def build_analysis_db(db_path, profile_json_path=None, verbose=True):
     post_by_id = {p["post_id"]: p for p in posts}
     rec_set = {(r["user_id"], r["post_id"]) for r in recs}
 
-    # ---- 2. 社群检测（关注图） -----------------------------------------
     community_of = {u["user_id"]: 0 for u in users}
     indeg = defaultdict(int)
     outdeg = defaultdict(int)
@@ -337,7 +294,6 @@ def build_analysis_db(db_path, profile_json_path=None, verbose=True):
     n_comm = len(set(community_of.values()))
     log(f"社群检测完成: {n_comm} 个社群")
 
-    # ---- 3. 帖子情感 / 话题 / 级联 -------------------------------------
     cascades = compute_cascades(posts)
     post_meta = {}  # post_id -> dict
     for p in posts:
@@ -363,7 +319,6 @@ def build_analysis_db(db_path, profile_json_path=None, verbose=True):
             "structural_virality": c.get("structural_virality", 0.0),
         }
 
-    # ---- 4. 组装事实表 event_fact --------------------------------------
     events = []  # 每项: dict
     all_dts = []
 
@@ -411,7 +366,6 @@ def build_analysis_db(db_path, profile_json_path=None, verbose=True):
             add_event(parse_ts(t["created_at"]), t["user_id"], t["action"])
     log(f"事实表事件数: {len(events)}")
 
-    # ---- 5. 生命周期分期 ------------------------------------------------
     phases, assign_phase = compute_phases(all_dts)
     for e in events:
         e["phase"] = assign_phase(e["_dt"])
@@ -421,7 +375,6 @@ def build_analysis_db(db_path, profile_json_path=None, verbose=True):
         post_phase[p["post_id"]] = assign_phase(parse_ts(p["created_at"]))
     log(f"生命周期阶段: {[ph['phase'] for ph in phases]}")
 
-    # ---- 6. 用户维度聚合 ------------------------------------------------
     # 按用户聚合各类计数
     u_post = Counter(); u_repost = Counter(); u_comment = Counter()
     u_like_given = Counter(); u_activity = Counter()
@@ -553,7 +506,6 @@ def build_analysis_db(db_path, profile_json_path=None, verbose=True):
             "content_preference": prof.get("content_preference", "未知"),
         })
 
-    # ---- 7. 社群维度 ----------------------------------------------------
     comm_users = defaultdict(list)
     for ud in user_dim:
         comm_users[ud["community_id"]].append(ud)
@@ -585,7 +537,6 @@ def build_analysis_db(db_path, profile_json_path=None, verbose=True):
         })
     community_dim.sort(key=lambda c: c["size"], reverse=True)
 
-    # ---- 8. 帖子维度 ----------------------------------------------------
     comment_cnt = Counter(c["post_id"] for c in comments)
     post_dim = []
     for p in posts:
@@ -613,7 +564,6 @@ def build_analysis_db(db_path, profile_json_path=None, verbose=True):
             "community_id": community_of.get(p["user_id"], 0),
         })
 
-    # ---- 9. 落库 --------------------------------------------------------
     _write_tables(conn, events, user_dim, post_dim, community_dim, phases,
                   {"users": len(users), "posts": len(posts), "events": len(events),
                    "communities": n_comm})
@@ -739,11 +689,10 @@ def has_analysis_tables(db_path):
 
 
 if __name__ == "__main__":
-    # 直接运行：默认对 weibo_test 下的样例库构建
     default_db = os.path.join(_THIS_DIR, "..", "..", "..", "weibo_test",
                               "weibo_sim_qwen_huawei.db")
     default_json = os.path.join(_THIS_DIR, "..", "..", "..", "weibo_test",
                                 "top100_users_complete_data_post_followers.json")
     db = sys.argv[1] if len(sys.argv) > 1 else os.path.abspath(default_db)
     pj = sys.argv[2] if len(sys.argv) > 2 else os.path.abspath(default_json)
-    print(build_analysis_db(db, pj))
+    sys.stdout.write(str(build_analysis_db(db, pj)) + "\n")

@@ -1023,16 +1023,10 @@ watch(drawerVisible, (newVal) => {
   font-size: 12px;
 }
 
-/* 加载容器 */
 .loading-container {
   padding: var(--spacing-xl);
 }
 
-/* ========================================
-   Element Plus 深色主题全局覆盖
-   ======================================== */
-
-/* 表格header - 修复白色背景 */
 .users-table :deep(.el-table__header-wrapper) {
   background-color: var(--bg-secondary) !important;
 }
@@ -1049,7 +1043,6 @@ watch(drawerVisible, (newVal) => {
   border-bottom: 1px solid var(--border-color) !important;
 }
 
-/* 搜索框 - 修复白色边框 */
 .search-card :deep(.el-input__wrapper) {
   background-color: var(--bg-tertiary) !important;
   border-color: var(--border-color) !important;
@@ -1071,7 +1064,6 @@ watch(drawerVisible, (newVal) => {
   color: var(--text-primary) !important;
 }
 
-/* 抽屉 - 修复白色边框 */
 :deep(.el-drawer) {
   background-color: var(--bg-secondary) !important;
   border-left: 1px solid var(--border-color) !important;

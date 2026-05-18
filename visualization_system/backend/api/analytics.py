@@ -1,6 +1,5 @@
-"""
-数据分析相关API端点
-"""
+import logging
+
 from fastapi import APIRouter, Query
 from typing import Optional
 from database.db_manager import get_db_manager
@@ -10,6 +9,7 @@ from utils.data_aggregation import (
 )
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/overview")
@@ -55,9 +55,7 @@ async def get_overview_stats():
             "avg_posts_per_user": avg_posts_per_user
         }
     except Exception as e:
-        import traceback
-        print(f"Error in get_overview_stats: {str(e)}")
-        print(traceback.format_exc())
+        logger.exception("Failed to load overview stats")
         return {
             "total_users": 0,
             "total_posts": 0,

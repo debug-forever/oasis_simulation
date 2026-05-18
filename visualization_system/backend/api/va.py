@@ -1,17 +1,5 @@
-"""
-可视分析 API (Visual Analytics)
-================================
-
-面向「分析师主导」的可视分析接口，不再是「一个图表一个端点」，而是：
-  - /catalog   告诉前端有哪些可选维度与度量
-  - /explore   通用聚合查询：用户选什么维度，就按什么维度 group by
-  - /lifecycle 舆情事件生命周期 + 各阶段维度变化      （需求 1）
-  - /key-groups 关键群体识别，支持任意条件组合筛选     （需求 2）
-  - /key-users  关键用户识别（意见领袖/发起者/活跃者） （需求 3）
-  - /user/{id}  个体下钻
-
-所有接口依赖 ETL 产出的 va_* 表；未构建时返回 needs_build 标记。
-"""
+"""Visual analytics endpoints backed by the va_* analysis tables."""
+import logging
 import os
 import json
 import sqlite3
@@ -22,16 +10,9 @@ from database.db_manager import get_db_manager
 from etl.build_analysis_db import build_analysis_db, has_analysis_tables
 
 router = APIRouter(prefix="/api/va", tags=["visual-analytics"])
+logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# 维度 / 度量定义  —— 可视分析的「可分析空间」
-# 每个维度: id -> (显示名, 类型, SQL表达式, 所属分组)
-# 表达式基于以下 JOIN:
-#   va_event_fact e
-#   LEFT JOIN va_user_dim u ON e.actor_id = u.user_id
-#   LEFT JOIN va_post_dim p ON e.post_id  = p.post_id
-# ---------------------------------------------------------------------------
 DIMENSIONS = {
     "user.community":         ("社群",       "categorical", "e.community_id",   "用户维度"),
     "user.influence_tier":    ("影响力分层", "ordinal",     "u.influence_tier", "用户维度"),
@@ -61,7 +42,6 @@ MEASURES = {
     "rec_ratio":     ("推荐驱动占比", "AVG(CAST(e.is_rec_driven AS REAL))"),
 }
 
-# 序数维度的固定排序
 ORDINAL_ORDER = {
     "time.phase": ["潜伏期", "爆发期", "扩散期", "衰退期"],
     "user.influence_tier": ["头部", "腰部", "长尾"],
@@ -73,7 +53,6 @@ BASE_JOIN = (
     "LEFT JOIN va_post_dim p ON e.post_id  = p.post_id"
 )
 
-# 可作为「群体划分」的用户维度（关键群体识别用）
 GROUP_DIMS = {
     "user.community":         ("社群",       "community_id"),
     "user.influence_tier":    ("影响力分层", "influence_tier"),
@@ -86,10 +65,19 @@ GROUP_DIMS = {
     "user.content_preference":("内容偏好",   "content_preference"),
 }
 
+USER_COLUMNS = {
+    "user.community": "community_id",
+    "user.influence_tier": "influence_tier",
+    "user.behavior_label": "behavior_label",
+    "user.role": "role",
+    "user.gender": "gender",
+    "user.region": "region",
+    "user.profession": "profession",
+    "user.account_type": "account_type",
+    "user.content_preference": "content_preference",
+}
 
-# ---------------------------------------------------------------------------
-# 公共工具
-# ---------------------------------------------------------------------------
+
 def _db_path():
     return get_db_manager().db_path
 
@@ -114,11 +102,6 @@ def _q(conn, sql, params=()):
 
 
 def _build_where(filters, extra_clauses=None):
-    """
-    把 filters [{dim, values}] 编译成 WHERE 子句片段 + 参数。
-    只接受白名单内的维度，值用占位符参数化，杜绝注入。
-    extra_clauses: 额外的原始条件（不含参数），例如 'e.ts IS NOT NULL'。
-    """
     clauses, params = [], []
     for f in filters or []:
         dim = f.get("dim")
@@ -136,19 +119,41 @@ def _build_where(filters, extra_clauses=None):
 
 
 def _sort_values(dim_id, values):
-    """对序数维度按预定义顺序排序，其余按出现顺序/字典序。"""
     if dim_id in ORDINAL_ORDER:
         order = ORDINAL_ORDER[dim_id]
         return sorted(values, key=lambda v: order.index(v) if v in order else 999)
     return values
 
 
-# ---------------------------------------------------------------------------
-# 1. 状态 / 构建
-# ---------------------------------------------------------------------------
+def _parse_filters(filters):
+    return json.loads(filters) if filters else []
+
+
+def _build_user_where(filters, table_alias=""):
+    prefix = f"{table_alias}." if table_alias else ""
+    clauses, params = [], []
+    for item in filters or []:
+        dim = item.get("dim")
+        values = item.get("values") or []
+        if dim in USER_COLUMNS and values:
+            placeholders = ",".join("?" * len(values))
+            clauses.append(f"{prefix}{USER_COLUMNS[dim]} IN ({placeholders})")
+            params.extend(values)
+    return (" WHERE " + " AND ".join(clauses)) if clauses else "", params
+
+
+def _round(value, digits=4):
+    return round(value, digits) if value is not None else None
+
+
+def _safe_lift(num, den):
+    if not den:
+        return None
+    return round(num / den, 3)
+
+
 @router.get("/status")
 async def va_status():
-    """返回当前数据库的分析层构建状态。"""
     path = _db_path()
     built = has_analysis_tables(path)
     info = {"db_path": path, "db_name": os.path.basename(path), "built": built}
@@ -167,9 +172,7 @@ async def va_status():
 
 @router.post("/build")
 async def va_build(profile_json: Optional[str] = Body(None, embed=True)):
-    """对当前数据库构建/重建 va_* 分析表。"""
     path = _db_path()
-    # 自动寻找同目录或 weibo_test 下的画像 JSON（可选增强）
     pj = profile_json
     if not pj:
         guess = os.path.join(os.path.dirname(path),
@@ -180,17 +183,12 @@ async def va_build(profile_json: Optional[str] = Body(None, embed=True)):
         result = build_analysis_db(path, pj, verbose=True)
         return {"success": True, "result": result}
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Failed to build visual analytics tables")
         raise HTTPException(status_code=500, detail=f"构建失败: {e}")
 
 
-# ---------------------------------------------------------------------------
-# 2. 维度目录
-# ---------------------------------------------------------------------------
 @router.get("/catalog")
 async def va_catalog():
-    """返回可分析空间：所有维度（含取值域）与度量。"""
     _require_built()
     conn = _conn()
     dims = []
@@ -212,22 +210,8 @@ async def va_catalog():
             "phase_order": ORDINAL_ORDER["time.phase"]}
 
 
-# ---------------------------------------------------------------------------
-# 3. 通用聚合查询
-# ---------------------------------------------------------------------------
 @router.post("/explore")
 async def va_explore(spec: dict = Body(...)):
-    """
-    通用维度聚合。请求体 spec:
-      {
-        "rows":   ["维度id", ...],   # 1~2 个，用于 group by 的「行」
-        "col":    "维度id" | null,   # 可选，用于交叉的「列」
-        "measure":"度量id",
-        "filters":[{"dim":"维度id","values":[...]}],
-        "limit":  int
-      }
-    返回 tidy 记录列表，前端据维度类型自动选图。
-    """
     _require_built()
     rows = [d for d in (spec.get("rows") or []) if d in DIMENSIONS][:2]
     col = spec.get("col") if spec.get("col") in DIMENSIONS else None
@@ -269,7 +253,6 @@ async def va_explore(spec: dict = Body(...)):
 
 
 def _chart_hint(rows, col):
-    """根据所选维度类型给前端一个出图建议。"""
     types = [DIMENSIONS[d][1] for d in rows] + ([DIMENSIONS[col][1]] if col else [])
     if "temporal" in types and col:
         return "stacked_area"
@@ -282,25 +265,16 @@ def _chart_hint(rows, col):
     return "bar"
 
 
-# ---------------------------------------------------------------------------
-# 4. 舆情生命周期  （需求 1）
-# ---------------------------------------------------------------------------
 @router.get("/lifecycle")
 async def va_lifecycle(
     breakdown: str = Query("event.action_type", description="阶段内拆解维度"),
     filters: Optional[str] = Query(None, description="JSON 编码的 filters 数组"),
 ):
-    """
-    舆情事件生命周期：
-      - phases:    四个阶段（潜伏/爆发/扩散/衰退）的边界与汇总指标
-      - timeline:  逐小时的事件量与情感曲线（含 breakdown 维度堆叠）
-      - snapshots: 每个阶段按 breakdown 维度的构成 + 关键指标，便于「看各阶段维度变化」
-    """
     _require_built()
     if breakdown not in DIMENSIONS:
         breakdown = "event.action_type"
     bexpr = DIMENSIONS[breakdown][2]
-    flt = json.loads(filters) if filters else []
+    flt = _parse_filters(filters)
     where, params = _build_where(flt)
     where_ts, params_ts = _build_where(flt, ["e.ts IS NOT NULL"])
 
@@ -309,7 +283,6 @@ async def va_lifecycle(
         meta = {r["key"]: r["value"] for r in _q(conn, "SELECT key,value FROM va_meta")}
         phases_meta = json.loads(meta.get("phases", "[]"))
 
-        # 每阶段汇总
         phase_rows = _q(conn, f"""
             SELECT e.phase AS phase,
                    COUNT(*) AS event_count,
@@ -336,7 +309,6 @@ async def va_lifecycle(
                 "neg": agg.get("neg", 0),
             }})
 
-        # 逐小时时间线（总量 + 情感）
         timeline = _q(conn, f"""
             SELECT substr(e.ts,1,13) AS hour, e.phase AS phase,
                    COUNT(*) AS event_count,
@@ -348,14 +320,12 @@ async def va_lifecycle(
             GROUP BY hour ORDER BY hour
         """, tuple(params_ts))
 
-        # 逐小时 × breakdown（用于堆叠流图）
         timeline_breakdown = _q(conn, f"""
             SELECT substr(e.ts,1,13) AS hour, {bexpr} AS bucket, COUNT(*) AS cnt
             {BASE_JOIN}{where_ts}
             GROUP BY hour, bucket ORDER BY hour
         """, tuple(params_ts))
 
-        # 每阶段 × breakdown 构成（用于「各阶段维度变化」对比）
         snap = _q(conn, f"""
             SELECT e.phase AS phase, {bexpr} AS bucket, COUNT(*) AS cnt,
                    COUNT(DISTINCT e.actor_id) AS users,
@@ -376,9 +346,6 @@ async def va_lifecycle(
     }
 
 
-# ---------------------------------------------------------------------------
-# 4b. 阶段对比 —— 两阶段并排对照，给出占比与 lift
-# ---------------------------------------------------------------------------
 @router.get("/lifecycle/compare")
 async def va_lifecycle_compare(
     phase_a: str = Query(..., description="参照阶段（基线）"),
@@ -386,17 +353,11 @@ async def va_lifecycle_compare(
     breakdown: str = Query("event.action_type", description="拆解维度"),
     filters: Optional[str] = Query(None, description="JSON 条件组合"),
 ):
-    """
-    选两个阶段 A、B 并排对照：
-      - aggregates: 两阶段的总量指标（事件量/活跃用户/平均情感/正负比/推荐占比）
-      - comparison: 按 breakdown 维度逐桶给出 ratio_a, ratio_b, lift (= ratio_b / ratio_a)
-                    lift > 1 表示该桶在 B 阶段「占比变大」，<1 表示变小。
-    """
     _require_built()
     if breakdown not in DIMENSIONS:
         breakdown = "event.action_type"
     bexpr = DIMENSIONS[breakdown][2]
-    base_filters = json.loads(filters) if filters else []
+    base_filters = _parse_filters(filters)
 
     def fetch_phase(phase):
         f2 = list(base_filters) + [{"dim": "time.phase", "values": [phase]}]
@@ -430,19 +391,16 @@ async def va_lifecycle_compare(
     total_a = agg_a["event_count"] or 1
     total_b = agg_b["event_count"] or 1
 
-    def _r(v, n=4):
-        return round(v, n) if v is not None else None
-
     def _norm_agg(a, total):
         return {
             "event_count": a["event_count"] or 0,
             "active_users": a["active_users"] or 0,
             "posts": a["posts"] or 0,
-            "avg_sentiment": _r(a["avg_sentiment"] or 0),
+            "avg_sentiment": _round(a["avg_sentiment"] or 0),
             "pos": a["pos"] or 0, "neu": a["neu"] or 0, "neg": a["neg"] or 0,
-            "pos_ratio": _r((a["pos"] or 0) / total),
-            "neg_ratio": _r((a["neg"] or 0) / total),
-            "rec_ratio": _r(a["rec_ratio"] or 0),
+            "pos_ratio": _round((a["pos"] or 0) / total),
+            "neg_ratio": _round((a["neg"] or 0) / total),
+            "rec_ratio": _round(a["rec_ratio"] or 0),
         }
 
     ma = {r["bucket"]: r for r in brk_a}
@@ -458,12 +416,11 @@ async def va_lifecycle_compare(
         comparison.append({
             "bucket": b,
             "count_a": ca, "count_b": cb,
-            "ratio_a": _r(ra), "ratio_b": _r(rb),
-            "lift": _r(lift, 3),
+            "ratio_a": _round(ra), "ratio_b": _round(rb),
+            "lift": _round(lift, 3),
             "delta_count": cb - ca,
-            "delta_ratio": _r(rb - ra),
+            "delta_ratio": _round(rb - ra),
         })
-    # 默认按 |lift-1| 倒序，先看变化最剧烈的桶
     comparison.sort(key=lambda x: abs((x["lift"] or 1) - 1), reverse=True)
 
     return {
@@ -475,45 +432,22 @@ async def va_lifecycle_compare(
     }
 
 
-# ---------------------------------------------------------------------------
-# 5. 关键群体识别  （需求 2）
-# ---------------------------------------------------------------------------
 @router.get("/key-groups")
 async def va_key_groups(
     group_by: str = Query("user.profession", description="群体划分维度"),
     filters: Optional[str] = Query(None, description="JSON 编码的 filters 数组（条件组合筛选）"),
     phase: Optional[str] = Query(None, description="限定舆情阶段"),
 ):
-    """
-    按所选用户维度切出群体，并对每个群体计算规模/活跃/影响力/情感等指标，
-    给出「关键度」排名。filters 支持任意用户维度的条件组合（职业+性别+行为+...）。
-    """
     _require_built()
     if group_by not in GROUP_DIMS:
         group_by = "user.profession"
     gcol = GROUP_DIMS[group_by][1]
 
-    # 用户维度筛选：把 filters 中属于用户维度的条件作用到 va_user_dim
-    flt = json.loads(filters) if filters else []
-    u_clauses, u_params = [], []
-    USER_COL = {  # dim id -> va_user_dim 列名
-        "user.community": "community_id", "user.influence_tier": "influence_tier",
-        "user.behavior_label": "behavior_label", "user.role": "role",
-        "user.gender": "gender", "user.region": "region",
-        "user.profession": "profession", "user.account_type": "account_type",
-        "user.content_preference": "content_preference",
-    }
-    for f in flt:
-        d, vals = f.get("dim"), f.get("values") or []
-        if d in USER_COL and vals:
-            ph = ",".join("?" * len(vals))
-            u_clauses.append(f"{USER_COL[d]} IN ({ph})")
-            u_params.extend(vals)
-    u_where = (" WHERE " + " AND ".join(u_clauses)) if u_clauses else ""
+    flt = _parse_filters(filters)
+    u_where, u_params = _build_user_where(flt)
 
     conn = _conn()
     try:
-        # 群体的成员侧指标（来自 va_user_dim）
         member_rows = _q(conn, f"""
             SELECT {gcol} AS grp,
                    COUNT(*) AS members,
@@ -531,7 +465,6 @@ async def va_key_groups(
             GROUP BY {gcol}
         """, tuple(u_params))
 
-        # 群体的行为侧指标（来自事实表，可按阶段过滤）
         ev_where = ""
         ev_params = []
         if phase:
@@ -552,7 +485,6 @@ async def va_key_groups(
     finally:
         conn.close()
 
-    # 合并 + 计算关键度
     groups = []
     max_members = max([r["members"] for r in member_rows], default=1) or 1
     max_act = max([r["total_activity"] or 0 for r in member_rows], default=1) or 1
@@ -588,8 +520,6 @@ async def va_key_groups(
         })
     groups.sort(key=lambda g: g["key_score"], reverse=True)
 
-    # === 基线 & lift 计算 ===
-    # 基线 = 全部群体加权平均（按事件量加权，规模相关的指标按成员加权）
     total_members = sum(g["members"] for g in groups) or 1
     total_events = sum(g["event_count"] for g in groups) or 1
     total_pos = sum(g["pos"] for g in groups) or 0
@@ -604,11 +534,6 @@ async def va_key_groups(
     base_rec_ratio         = (total_recw / total_events) if total_events else 0
     base_sentiment         = (total_sentw / total_events) if total_events else 0
     base_influence         = (total_inflw / total_members) if total_members else 0
-
-    def _safe_lift(num, den):
-        if not den:
-            return None
-        return round(num / den, 3)
 
     for g in groups:
         epm = (g["event_count"] / g["members"]) if g["members"] else 0
@@ -645,9 +570,6 @@ async def va_key_groups(
     }
 
 
-# ---------------------------------------------------------------------------
-# 6. 关键用户识别  （需求 3）
-# ---------------------------------------------------------------------------
 KEY_USER_SORTS = {
     "influence_score": "influence_score",
     "pagerank": "pagerank",
@@ -667,10 +589,6 @@ async def va_key_users(
     phase: Optional[str] = Query(None, description="限定该用户在某阶段有活动"),
     limit: int = Query(50, ge=1, le=500),
 ):
-    """
-    关键用户识别：按角色 + 用户维度条件组合筛选并排序。
-    角色由 ETL 预先判定（意见领袖 / 讨论发起者 / 活跃用户 / 普通传播者 / 边缘用户）。
-    """
     _require_built()
     sort_col = KEY_USER_SORTS.get(sort_by, "influence_score")
 
@@ -678,20 +596,12 @@ async def va_key_users(
     if role and role != "all":
         clauses.append("u.role = ?")
         params.append(role)
-    flt = json.loads(filters) if filters else []
-    USER_COL = {
-        "user.community": "community_id", "user.influence_tier": "influence_tier",
-        "user.behavior_label": "behavior_label", "user.role": "role",
-        "user.gender": "gender", "user.region": "region",
-        "user.profession": "profession", "user.account_type": "account_type",
-        "user.content_preference": "content_preference",
-    }
-    for f in flt:
-        d, vals = f.get("dim"), f.get("values") or []
-        if d in USER_COL and vals:
-            ph = ",".join("?" * len(vals))
-            clauses.append(f"u.{USER_COL[d]} IN ({ph})")
-            params.extend(vals)
+
+    filter_where, filter_params = _build_user_where(_parse_filters(filters), table_alias="u")
+    if filter_where:
+        clauses.append(filter_where.removeprefix(" WHERE "))
+        params.extend(filter_params)
+
     phase_join = ""
     if phase:
         phase_join = ("JOIN (SELECT DISTINCT actor_id FROM va_event_fact "
@@ -714,7 +624,6 @@ async def va_key_users(
             ORDER BY u.{sort_col} DESC
             LIMIT {limit}
         """, tuple(params))
-        # 角色分布（不受 limit 影响，但受筛选影响）
         role_dist = _q(conn, f"""
             SELECT u.role AS role, COUNT(*) AS cnt
             FROM va_user_dim u {phase_join}{where}
@@ -730,12 +639,8 @@ async def va_key_users(
     }
 
 
-# ---------------------------------------------------------------------------
-# 7. 个体下钻
-# ---------------------------------------------------------------------------
 @router.get("/user/{user_id}")
 async def va_user_detail(user_id: int):
-    """单个用户的画像 + 行为轨迹 + 内容，用于关键用户/群体的溯源下钻。"""
     _require_built()
     conn = _conn()
     try:
@@ -743,23 +648,19 @@ async def va_user_detail(user_id: int):
         if not profile:
             raise HTTPException(404, "用户不存在")
         profile = profile[0]
-        # 行为轨迹（逐小时 × 行为类型）
         timeline = _q(conn, """
             SELECT substr(ts,1,13) AS hour, action_type, phase, COUNT(*) AS cnt
             FROM va_event_fact WHERE actor_id = ? AND ts IS NOT NULL
             GROUP BY hour, action_type ORDER BY hour
         """, (user_id,))
-        # 行为构成
         action_mix = _q(conn, """
             SELECT action_type, COUNT(*) AS cnt FROM va_event_fact
             WHERE actor_id = ? GROUP BY action_type ORDER BY cnt DESC
         """, (user_id,))
-        # 阶段活跃度
         phase_activity = _q(conn, """
             SELECT phase, COUNT(*) AS cnt FROM va_event_fact
             WHERE actor_id = ? GROUP BY phase
         """, (user_id,))
-        # 发布的内容
         posts = _q(conn, """
             SELECT post_id, is_repost, content, created_at, phase, topic,
                    sentiment_class, sentiment_score, num_likes, num_shares,
@@ -777,12 +678,6 @@ async def va_user_detail(user_id: int):
 
 @router.get("/user/{user_id}/influence-path")
 async def va_user_influence_path(user_id: int):
-    """
-    单用户的影响力获取路径：他发布的内容被谁、何时、以何种方式扩散。
-    返回一条时间序列，可用于回答「TA 是被谁带火的 / 谁在帮他扩散」。
-      - 每个事件标注来源用户的影响力分、角色、粉丝数（高影响力来源会显著拉曲线）
-      - 同时给出 cumulative_reposts / likes / comments 三条累计曲线
-    """
     _require_built()
     conn = _conn()
     try:
@@ -807,11 +702,10 @@ async def va_user_influence_path(user_id: int):
     finally:
         conn.close()
 
-    # 标准化 action_type → en（转发/评论/点赞 → repost/comment/like）
     ZH2EN = {"转发": "repost", "评论": "comment", "点赞": "like"}
     cum_r = cum_c = cum_l = 0
     path = []
-    src_agg = {}  # 来源用户聚合
+    src_agg = {}
     for r in rows:
         a = ZH2EN.get(r["action_type"], r["action_type"])
         if   a == "repost":  cum_r += 1

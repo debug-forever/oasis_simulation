@@ -133,27 +133,24 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { postAPI } from '@/api'
 
-// ========== 数据状态 ==========
 const loading = ref(false)
-const viewMode = ref('single') // 'single' or 'all'
+const viewMode = ref('single')
 const selectedPostId = ref(null)
 const recentPosts = ref([])
 const graphData = ref({ nodes: [], links: [], categories: [], timeRange: {}, colorMap: {} })
 
-// ========== 可视化状态 ==========
 const chart = ref(null)
 const graphChart = ref(null)
 const isPlaying = ref(false)
 const animationSpeed = ref(1)
 const currentTime = ref(0)
-const timeMode = ref('cumulative') // 'cumulative' or 'slice'
-const sliceWindow = ref(3600) // 1 hour in seconds
+const timeMode = ref('cumulative')
+const sliceWindow = ref(3600)
 const isViewLocked = ref(false)
 const isFirstRender = ref(true)
 const animationFrameId = ref(null)
 const nodePositions = ref({})
 
-// ========== 统计数据 ==========
 const stats = ref({
   root: 0,
   repost: 0,
@@ -161,7 +158,6 @@ const stats = ref({
   total: 0
 })
 
-// ========== 计算属性 ==========
 const hasData = computed(() => graphData.value.nodes.length > 0)
 
 const timeRange = computed(() => graphData.value.timeRange || { min: 0, max: 0, minStr: '', maxStr: '' })
@@ -191,16 +187,13 @@ const currentTimeStr = computed(() => {
   return timeStr
 })
 
-// ========== 工具函数 ==========
 const truncate = (text, maxLength) => {
   if (!text) return ''
   return text.length > maxLength ? text.substring(0, maxLength) + '...' : text
 }
 
-// ========== 数据加载 ==========
 const loadRecentPosts = async () => {
   try {
-    // 只加载根帖子（原创帖子）
     const response = await postAPI.getPosts({ page: 1, page_size: 50, post_type: 'original' })
     recentPosts.value = response.posts || []
     
@@ -215,27 +208,20 @@ const loadRecentPosts = async () => {
 
 const loadData = async () => {
   loading.value = true
-  console.log('loadData started, viewMode:',viewMode.value)
   
-  // 销毁旧的chart实例，确保切换模式时重新初始化
   if (chart.value) {
-    console.log('Disposing chart before loading new data...')
     chart.value.dispose()
     chart.value = null
   }
-  isFirstRender.value = true  // 标记为首次渲染，确保完全重建
+  isFirstRender.value = true
   
   try {
     let data
     
-    // 创建超时Promise
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('API request timeout after 30s')), 30000)
     })
-    
-    console.log('🚀 Starting API call with 30s timeout...')
-    const startTime = Date.now()
-    
+
     if (viewMode.value === 'single') {
       if (!selectedPostId.value) {
         loading.value = false
@@ -251,56 +237,27 @@ const loadData = async () => {
         timeoutPromise
       ])
     }
-    
-    const elapsed = Date.now() - startTime
-    console.log(`✅ API call completed in ${elapsed}ms`)
-    console.log('Loaded propagation data:', data)
-    console.log('Nodes count:', data.nodes?.length)
-    console.log('Time range:', data.timeRange)
-    
+
     graphData.value = data
-    
-    // 设置loading为false让DOM先渲染
     loading.value = false
-    
-    // 等待DOM渲染完成
+
     await nextTick()
-    await nextTick() // 双重nextTick确保DOM完全渲染
-    
-    console.log('DOM should be ready now, graphChart.value:', !!graphChart.value)
-    
-    // 初始化时间轴
-    console.log('=== Initializing visualization ===')
-    console.log('Time range:', timeRange.value)
-    console.log('Total nodes:', graphData.value.nodes.length)
-    console.log('Total links:', graphData.value.links.length)
-    
-    // 预计算节点位置（必须在任何渲染之前完成）
+    await nextTick()
+
     precomputeNodePositions()
     
     if (timeRange.value.min && timeRange.value.max) {
-      // 初始化到最大时间，这样累积模式下所有节点都可见
       currentTime.value = timeRange.value.max
-      console.log('Using timeline mode, initialized currentTime to MAX:', currentTime.value)
-      console.log('Time range:', timeRange.value.minStr, 'to', timeRange.value.maxStr)
       
-      // 初始时锁定视角，使用预计算位置，确保节点可见
       if (!isViewLocked.value && graphData.value.nodes.length > 100) {
         isViewLocked.value = true
-        console.log('Auto-locked view for', graphData.value.nodes.length, 'nodes')
       }
-      
-      // 渲染
+
       updateVisualization()
     } else {
-      console.warn('No valid time range, rendering all nodes without timeline')
-      // 没有时间范围时，直接渲染所有节点
       if (graphData.value.nodes.length > 0) {
-        console.log('Rendering all nodes directly (no timeline)')
         renderGraph(graphData.value.nodes, graphData.value.links)
         updateStats(graphData.value.nodes)
-      } else {
-        console.error('No nodes to render!')
       }
     }
   } catch (error) {
@@ -309,17 +266,12 @@ const loadData = async () => {
   }
 }
 
-// ========== 节点位置预计算 ==========
 const precomputeNodePositions = () => {
   const nodes = graphData.value.nodes
   const links = graphData.value.links
   
   if (!nodes.length) return
-  
-  console.log('=== Precomputing node positions (Tree Layout) ===')
-  console.log('Total nodes:', nodes.length)
-  
-  // 构建父子关系映射
+
   const childrenMap = {}
   links.forEach(link => {
     if (!childrenMap[link.source]) {
@@ -327,24 +279,19 @@ const precomputeNodePositions = () => {
     }
     childrenMap[link.source].push(link.target)
   })
-  
-  // 找到所有根节点（没有父节点的）
+
   const allTargets = new Set(links.map(l => l.target))
   const rootNodes = nodes.filter(n => !allTargets.has(n.node_id))
-  
-  console.log('Root nodes found:', rootNodes.length)
-  
+
   const centerX = 0
   const centerY = 0
   
-  // 布局根节点 - 如果有多个根节点，按圆形分布
   rootNodes.forEach((node, i) => {
     if (rootNodes.length === 1) {
       nodePositions.value[node.node_id] = { x: centerX, y: centerY }
     } else {
       const angle = (2 * Math.PI * i) / rootNodes.length
-      // 根据根节点数量动态调整半径，确保不重叠
-      const radius = Math.max(1500, rootNodes.length * 20)  // 至少1500px，或根据数量调整
+      const radius = Math.max(1500, rootNodes.length * 20)
       nodePositions.value[node.node_id] = {
         x: centerX + radius * Math.cos(angle),
         y: centerY + radius * Math.sin(angle)
@@ -352,36 +299,31 @@ const precomputeNodePositions = () => {
     }
   })
   
-  // 递归布局子节点
   const layoutChildren = (parentId, parentX, parentY, level, siblings = 1, siblingIndex = 0) => {
     const children = childrenMap[parentId] || []
     if (children.length === 0) return
     
-    const baseRadius = 700 + level * 700  // 每层增加700px（极大分离度）
-    const angleSpan = Math.PI * 2  // 全圆角度范围
+    const baseRadius = 700 + level * 700
+    const angleSpan = Math.PI * 2
     const startAngle = -angleSpan / 2 + (siblingIndex / Math.max(siblings - 1, 1)) * angleSpan * 0.3
     
     children.forEach((childId, i) => {
       const angle = startAngle + (i / Math.max(children.length - 1, 1)) * angleSpan
-      const jitter = (Math.random() - 0.5) * 200  // 极大的随机扰动
+      const jitter = (Math.random() - 0.5) * 200
       
       const x = parentX + baseRadius * Math.cos(angle) + jitter
       const y = parentY + baseRadius * Math.sin(angle) + jitter
       
       nodePositions.value[childId] = { x, y }
-      
-      // 递归处理子节点的子节点
       layoutChildren(childId, x, y, level + 1, children.length, i)
     })
   }
   
-  // 从每个根节点开始布局
   rootNodes.forEach((rootNode, i) => {
     const rootPos = nodePositions.value[rootNode.node_id]
     layoutChildren(rootNode.node_id, rootPos.x, rootPos.y, 1, rootNodes.length, i)
   })
   
-  // 处理孤立节点（没有父节点也没有子节点）
   nodes.forEach((node, i) => {
     if (!nodePositions.value[node.node_id]) {
       const angle = (2 * Math.PI * i) / nodes.length
@@ -392,52 +334,32 @@ const precomputeNodePositions = () => {
       }
     }
   })
-  
-  console.log('Tree layout complete')
-  if (nodes.length > 0) {
-    console.log('Sample positions:', Object.entries(nodePositions.value).slice(0, 3))
-  }
 }
 
-// ========== 可视化更新 ==========
 const updateVisualization = () => {
-  console.log('=== updateVisualization called ===')
-  console.log('hasData:', hasData.value)
-  console.log('currentTime:', currentTime.value)
-  console.log('timeMode:', timeMode.value)
-  
   if (!hasData.value) {
-    console.warn('No data to visualize')
     return
   }
-  
-  console.log('Updating visualization at time:', currentTime.value)
-  
-  // 根据时间和模式过滤节点
+
   let visibleNodes, visibleLinks
   
   if (timeMode.value === 'cumulative') {
-    // 累积模式：显示从开始到当前时间的所有节点
     visibleNodes = graphData.value.nodes.filter(node => {
-      // 对于没有有效时间戳的节点，始终显示
       if (!node.timestamp || node.timestamp === 0) {
         return true
       }
       return node.timestamp <= currentTime.value
     })
     visibleLinks = graphData.value.links.filter(link => {
-      // 对于没有时间戳的连接，检查源和目标节点是否都可见
       const sourceVisible = visibleNodes.find(n => n.node_id === link.source)
       const targetVisible = visibleNodes.find(n => n.node_id === link.target)
       return sourceVisible && targetVisible
     })
   } else {
-    // 时间切片模式：只显示时间窗口内的节点
     const windowStart = currentTime.value
     const windowEnd = currentTime.value + sliceWindow.value
     
     visibleNodes = graphData.value.nodes.filter(node => {
-      // 对于没有有效时间戳的节点，在切片模式下也显示
       if (!node.timestamp || node.timestamp === 0) {
         return true
       }
@@ -449,26 +371,13 @@ const updateVisualization = () => {
       visibleNodeIds.has(link.source) && visibleNodeIds.has(link.target)
     )
   }
-  
-  console.log('=== Filtering results ===')
-  console.log('Visible nodes:', visibleNodes.length, '/', graphData.value.nodes.length)
-  console.log('Visible links:', visibleLinks.length, '/', graphData.value.links.length)
-  
-  // 如果没有可见节点，这是个问题
+
   if (visibleNodes.length === 0) {
-    console.error('ERROR: No visible nodes after filtering!')
-    console.error('Sample node timestamps:', graphData.value.nodes.slice(0, 5).map(n => ({ id: n.node_id, ts: n.timestamp })))
-    
-    // 紧急措施：直接显示所有节点
-    console.warn('Emergency: Rendering all nodes without time filtering')
     visibleNodes = graphData.value.nodes
     visibleLinks = graphData.value.links
   }
   
-  // 更新统计
   updateStats(visibleNodes)
-  
-  // 渲染图表
   renderGraph(visibleNodes, visibleLinks)
 }
 
@@ -483,72 +392,45 @@ const renderGraph = (nodes, links) => {
     return
   }
   
-  console.log('=== renderGraph called ===')
-  console.log('Nodes to render:', nodes.length)
-  console.log('Links to render:', links.length)
-  
-  if (nodes.length === 0) {
-    console.warn('renderGraph called with 0 nodes')
-    // still render empty graph to clear view if needed, or return
-    // return
-  }
-
-  // Initialize chart if needed
   if (!chart.value) {
-    console.log('Initializing NEW ECharts instance...')
     chart.value = echarts.init(graphChart.value)
-    
-    // 监听缩放事件
-    chart.value.on('graphroam', (params) => {
-      if (params.zoom != null) {
-        console.log('Graph zoomed:', params.zoom)
-      }
-    })
   }
 
-  // 构建并渲染
   buildAndRenderGraph(nodes, links)
 }
 
-// 辅助函数：构建并渲染图表
 const buildAndRenderGraph = (nodes, links) => {
-  // 优化：预先计算每个节点的度数 (O(M))
   const nodeDegreeMap = {}
   links.forEach(link => {
     nodeDegreeMap[link.source] = (nodeDegreeMap[link.source] || 0) + 1
     nodeDegreeMap[link.target] = (nodeDegreeMap[link.target] || 0) + 1
   })
 
-  // 为节点添加位置
   const positionedNodes = nodes.map(node => {
     const pos = nodePositions.value[node.node_id]
     
-    // 计算节点大小（极小）
     const structDegree = nodeDegreeMap[node.node_id] || 0
     const interactionScore = node.num_likes + (node.num_shares * 2)
     let symbolSize = 8 + Math.log(interactionScore + 1) * 2 + (structDegree * 1.5)
     
-    // 极小的大小范围
     symbolSize = Math.min(Math.max(symbolSize, 8), 25)
     
-    // 使用明亮的颜色
     const colorMap = graphData.value.colorMap || {}
     let color = colorMap[node.node_type] || '#FF0000'
     
-    if (node.node_type === 'root') color = '#FFD700'  // 金色
-    else if (node.node_type === 'repost') color = '#FF6B6B'  // 亮红
-    else if (node.node_type === 'comment') color = '#4ECDC4'  // 青色
+    if (node.node_type === 'root') color = '#FFD700'
+    else if (node.node_type === 'repost') color = '#FF6B6B'
+    else if (node.node_type === 'comment') color = '#4ECDC4'
     
     const nodeConfig = {
       name: node.node_id,
       symbolSize: symbolSize,
       category: node.category,
       value: interactionScore,
-      id: node.node_id, // ensure ID is passed
-      x: pos && isViewLocked.value ? pos.x : undefined,  // 锁定时用固定位置，解锁时由force计算
+      id: node.node_id,
+      x: pos && isViewLocked.value ? pos.x : undefined,
       y: pos && isViewLocked.value ? pos.y : undefined,
       fixed: isViewLocked.value,
-      // Pass data for tooltip
       rawNode: node,
       structDegree: structDegree,
       itemStyle: {
@@ -557,7 +439,7 @@ const buildAndRenderGraph = (nodes, links) => {
         borderWidth: 1
       },
       label: {
-        show: symbolSize > 30,  // 只显示较大节点的标签
+        show: symbolSize > 30,
         formatter: node.user_name,
         color: '#fff',
         fontSize: 10,
@@ -568,23 +450,8 @@ const buildAndRenderGraph = (nodes, links) => {
     return nodeConfig
   })
   
-  console.log('=== Building ECharts nodes ===')
-  console.log('Sample positioned nodes:', positionedNodes.slice(0, 3))
-  console.log('Total positioned nodes:', positionedNodes.length)
-  console.log('Categories:', graphData.value.categories)
-  
-  // 检查前几个节点的实际坐标
-  if (positionedNodes.length > 0) {
-    console.log('First node positions:', positionedNodes.slice(0, 3).map(n => ({ 
-      name: n.name, 
-      x: n.x, 
-      y: n.y, 
-      size: n.symbolSize 
-    })))
-  }
-  
   const option = {
-    backgroundColor: '#1a1a2e',  // 深色背景
+    backgroundColor: '#1a1a2e',
     tooltip: {
       trigger: 'item',
       backgroundColor: 'rgba(30, 30, 30, 0.95)',
@@ -619,37 +486,35 @@ const buildAndRenderGraph = (nodes, links) => {
     },
     legend: {
       data: graphData.value.categories.map(c => c.name),
-      orient: 'horizontal',  // 改为横向排列
-      right: '3%',  // 放到右上角
+      orient: 'horizontal',
+      right: '3%',
       top: '3%',
       textStyle: {
         color: '#fff',
-        fontSize: 12,  // 缩小字体
+        fontSize: 12,
         fontWeight: 'normal'
       },
-      itemGap: 15,  // 减小间距
-      itemWidth: 20,  // 减小图标宽度
-      itemHeight: 20  // 减小图标高度
+      itemGap: 15,
+      itemWidth: 20,
+      itemHeight: 20
     },
     animationDuration: isFirstRender.value ? 1000 : 300,
     animationDurationUpdate: 300,
     animationEasingUpdate: 'cubicOut',
     series: [{
       type: 'graph',
-      layout: isViewLocked.value ? 'none' : 'force',  // 锁定时固定，解锁时力导向
+      layout: isViewLocked.value ? 'none' : 'force',
       data: positionedNodes,
       links: links,
       categories: graphData.value.categories,
       roam: true,
       draggable: true,
-      // 关键配置：允许更大范围的缩放和拖拽
       scaleLimit: {
         min: 0.05,
         max: 30
       },
       center: ['50%', '50%'],
       zoom: 0.8,
-      // 允许更大的平移范围
       left: 0,
       right: 0,
       top: 0,
@@ -660,10 +525,10 @@ const buildAndRenderGraph = (nodes, links) => {
       showSymbol: true,
       zlevel: 1,
       force: {
-        repulsion: 2500,  // 增大斥力，节点分开更多
-        gravity: 0.3,  // 更强引力，极快收敛
-        edgeLength: [15, 50],  // 稍微增大边长范围
-        friction: 0.9,  // 极高摩擦快速稳定
+        repulsion: 2500,
+        gravity: 0.3,
+        edgeLength: [15, 50],
+        friction: 0.9,
         layoutAnimation: true
       },
       lineStyle: {
@@ -686,14 +551,7 @@ const buildAndRenderGraph = (nodes, links) => {
     }]
   }
   
-  console.log('=== Setting ECharts option ===')
-  console.log('Series data length:', option.series[0].data.length)
-  console.log('Series links length:', option.series[0].links.length)
-  console.log('Layout mode:', option.series[0].layout)
-  console.log('View locked:', isViewLocked.value)
-  
   if (!chart.value) {
-    console.error('🔥 ERROR: chart.value is null when trying to setOption!')
     return
   }
   
@@ -702,16 +560,12 @@ const buildAndRenderGraph = (nodes, links) => {
     lazyUpdate: false
   })
   
-  console.log('🔥 setOption completed, forcing resize...')
   chart.value.resize()
   
-  // 首次渲染后居中图表
   if (isFirstRender.value) {
-    console.log('First render, centering graph in 500ms...')
     setTimeout(() => {
       if (chart.value) {
         chart.value.dispatchAction({ type: 'restore' })
-        console.log('Graph centered')
       }
     }, 500)
   }
@@ -744,7 +598,6 @@ const updateStats = (visibleNodes) => {
   }
 }
 
-// ========== 时间轴控制 ==========
 const onSliderChange = () => {
   updateVisualization()
 }
@@ -753,7 +606,6 @@ const togglePlay = () => {
   isPlaying.value = !isPlaying.value
   
   if (isPlaying.value) {
-    // 播放时自动锁定视角
     if (!isViewLocked.value) {
       toggleLockView()
     }
@@ -828,18 +680,15 @@ const onTimeModeChange = () => {
   updateVisualization()
 }
 
-// ========== 生命周期 ==========
+const handleResize = () => {
+  if (chart.value) {
+    chart.value.resize()
+  }
+}
+
 onMounted(() => {
-  console.log('Component mounted')
-  console.log('graphChart ref available:', !!graphChart.value)
-  
   loadRecentPosts()
-  
-  window.addEventListener('resize', () => {
-    if (chart.value) {
-      chart.value.resize()
-    }
-  })
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
@@ -847,6 +696,7 @@ onUnmounted(() => {
   if (chart.value) {
     chart.value.dispose()
   }
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 

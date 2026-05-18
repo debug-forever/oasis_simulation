@@ -1,7 +1,6 @@
 <template>
   <div id="app">
     <el-container>
-      <!-- 侧边栏导航 -->
       <el-aside width="240px" class="sidebar">
         <div class="logo-container">
           <div class="logo">
@@ -15,54 +14,18 @@
           :default-active="currentRoute"
           class="sidebar-menu"
           router
-          @select="handleMenuSelect"
         >
-          <el-menu-item index="/">
-            <span class="menu-icon">🚀</span>
-            <span>控制台</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/dashboard">
-            <span class="menu-icon">🏠</span>
-            <span>系统概览</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/users">
-            <span class="menu-icon">👥</span>
-            <span>用户列表</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/posts">
-            <span class="menu-icon">📝</span>
-            <span>内容列表</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/propagation">
-            <span class="menu-icon">🌐</span>
-            <span>传播图谱</span>
-          </el-menu-item>
-          
-          <el-menu-item index="/network">
-            <span class="menu-icon">🔗</span>
-            <span>关系网络</span>
-          </el-menu-item>
-
-          <div class="menu-group-label">可视分析</div>
-
-          <el-menu-item index="/lifecycle">
-            <span class="menu-icon">📈</span>
-            <span>舆情生命周期</span>
-          </el-menu-item>
-
-          <el-menu-item index="/key-groups">
-            <span class="menu-icon">🎯</span>
-            <span>关键群体识别</span>
-          </el-menu-item>
-
-          <el-menu-item index="/key-users">
-            <span class="menu-icon">⭐</span>
-            <span>关键用户识别</span>
-          </el-menu-item>
+          <template v-for="section in navSections" :key="section.label || 'main'">
+            <div v-if="section.label" class="menu-group-label">{{ section.label }}</div>
+            <el-menu-item
+              v-for="item in section.items"
+              :key="item.path"
+              :index="item.path"
+            >
+              <span class="menu-icon">{{ item.icon }}</span>
+              <span>{{ item.title }}</span>
+            </el-menu-item>
+          </template>
         </el-menu>
         
         <div class="sidebar-footer">
@@ -71,9 +34,7 @@
         </div>
       </el-aside>
       
-      <!-- 主内容区 -->
       <el-container>
-        <!-- 顶部导航栏 -->
         <el-header height="60px" class="top-header">
           <div class="header-content">
             <h3 class="page-title">{{ pageTitle }}</h3>
@@ -86,7 +47,6 @@
           </div>
         </el-header>
         
-        <!-- 页面内容 -->
         <el-main class="main-content">
           <router-view v-slot="{ Component }">
             <transition name="fade" mode="out-in">
@@ -100,29 +60,14 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { navSections, pageTitles } from '@/router'
 
 const route = useRoute()
 
-const pageTitles = {
-  '/': '控制台',
-  '/dashboard': '系统概览',
-  '/users': '用户列表',
-  '/posts': '内容列表',
-  '/propagation': '传播图谱',
-  '/network': '关系网络',
-  '/lifecycle': '舆情生命周期',
-  '/key-groups': '关键群体识别',
-  '/key-users': '关键用户识别'
-}
-
 const currentRoute = computed(() => route.path)
 const pageTitle = computed(() => pageTitles[route.path] || '微博仿真可视化系统')
-
-const handleMenuSelect = (index) => {
-  console.log('Selected menu:', index)
-}
 </script>
 
 <style scoped>
@@ -135,7 +80,6 @@ const handleMenuSelect = (index) => {
   height: 100%;
 }
 
-/* ========== 侧边栏样式 ========== */
 .sidebar {
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
@@ -237,7 +181,6 @@ const handleMenuSelect = (index) => {
   opacity: 0.6;
 }
 
-/* ========== 顶部导航栏 ========== */
 .top-header {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
@@ -264,14 +207,12 @@ const handleMenuSelect = (index) => {
   gap: var(--spacing-sm);
 }
 
-/* ========== 主内容区 ========== */
 .main-content {
   background: var(--bg-color);
   padding: var(--spacing-xl);
   overflow-y: auto;
 }
 
-/* ========== 过渡动画 ========== */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease, transform 0.3s ease;

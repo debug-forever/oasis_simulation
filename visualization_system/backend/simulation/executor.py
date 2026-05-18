@@ -1,57 +1,44 @@
-"""
-模拟执行器
-负责执行具体的模拟任务，完全基于 weibo_simulation_openai.py 的验证逻辑
-"""
 import asyncio
+import io
+import logging
 import os
 import sys
 import time
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
-import io
-import logging
 
 from .models import SimulationTask, SimStatus
 
 
+logger = logging.getLogger(__name__)
+
+
 class SimulationExecutor:
-    """模拟执行器"""
-    
     def __init__(self, task: SimulationTask):
         self.task = task
         self._stop_flag = False
         
-        # 配置输出编码（避免中文乱码）
         try:
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
             sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
         except Exception:
             pass
         
-        # 禁用logging异常抛出
         logging.raiseExceptions = False
     
     def stop(self):
-        """停止执行"""
         self._stop_flag = True
     
     def _log(self, message: str):
-        """记录日志"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_line = f"[{timestamp}] {message}"
-        print(log_line)  # 输出到控制台
+        logger.info(log_line)
         self.task.logs.append(log_line)
         
-        # 只保留最近500条日志
         if len(self.task.logs) > 500:
             self.task.logs = self.task.logs[-500:]
     
     async def run(self):
-        """
-        执行模拟任务
-        基于 weibo_simulation_openai.py 的完整逻辑
-        """
         start_time = time.time()
         
         try:
@@ -65,7 +52,6 @@ class SimulationExecutor:
             db_path = self._prepare_database()
             self.task.db_path = str(db_path)
             
-            # 执行模拟的核心逻辑
             await self._run_simulation()
             
             # 完成
@@ -76,7 +62,6 @@ class SimulationExecutor:
             self._log(f"✅ 模拟完成！数据库: {self.task.db_path}")
             self._log(f"总用时: {self.task.stats.elapsed_time:.2f}秒")
             
-            # 自动切换全局数据库连接到新生成的数据库
             try:
                 self._log("🔄 切换数据库连接到新生成的模拟数据库...")
                 from database.db_manager import switch_database
@@ -95,13 +80,10 @@ class SimulationExecutor:
             self._log(traceback.format_exc())
     
     def _prepare_database(self) -> Path:
-        """准备数据库文件"""
         db_path = Path("weibo_test") / self.task.config.output_db_name
         
-        # 确保目录存在
         db_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # 删除旧文件
         if db_path.exists():
             try:
                 db_path.unlink()
@@ -109,16 +91,11 @@ class SimulationExecutor:
             except Exception as e:
                 self._log(f"⚠️ 无法删除旧数据库: {e}")
         
-        # 设置环境变量
         os.environ["OASIS_DB_PATH"] = str(db_path.resolve())
         
         return db_path
     
     def _build_llm_model(self):
-        """
-        根据配置构建LLM模型
-        完全参考 weibo_simulation_openai.py 的 build_llm_model()
-        """
         from camel.models import ModelFactory
         from camel.types import ModelPlatformType, ModelType
         
@@ -162,7 +139,6 @@ class SimulationExecutor:
             raise ValueError(f"❌ 不支持的LLM提供商: {provider}")
     
     async def _run_simulation(self):
-        """运行模拟的核心逻辑"""
         try:
             self._log("📦 导入Oasis模块...")
             import oasis
@@ -172,17 +148,14 @@ class SimulationExecutor:
                 get_default_weibo_actions
             )
             
-            # 1. 构建LLM模型
             llm_model = None
             if self.task.config.enable_llm:
                 llm_model = self._build_llm_model()
             else:
                 self._log("⚪ LLM未启用，将跳过LLM动作")
             
-            # 2. 获取可用动作
             available_actions = get_default_weibo_actions()
             
-            # 3. 生成agent图 - 修复路径
             self._log(f"🤖 生成{self.task.config.num_agents}个Agent...")
             dataset_path = self.task.config.dataset_path
             if not Path(dataset_path).is_absolute():
@@ -197,7 +170,6 @@ class SimulationExecutor:
                 num_agents=self.task.config.num_agents,
             )
             
-            # 4. 创建环境
             self._log("🌍 创建Oasis环境...")
             env = oasis.make(
                 agent_graph=agent_graph,
@@ -205,19 +177,16 @@ class SimulationExecutor:
                 database_path=str(self.task.db_path),
             )
             
-            # 5. 重置环境
             self._log("🔄 重置环境...")
             await env.reset()
             self.task.stats.users_created = len(list(agent_graph.get_agents()))
             
-            # 5.5. 播种初始帖子（在主循环之前）
             self._log(f"🔍 检查: enable_seed_posts={self.task.config.enable_seed_posts}, num_seed_posts={self.task.config.num_seed_posts}")
             if self.task.config.enable_seed_posts:
                 await self._seed_initial_posts(env, agent_graph)
             else:
                 self._log("⏭️ 跳过初始帖子播种（已禁用）")
             
-            # 6. 执行多轮模拟
             self._log(f"▶️ 开始执行{self.task.config.num_rounds}轮模拟...")
             
             for round_idx in range(self.task.config.num_rounds):
@@ -254,26 +223,21 @@ class SimulationExecutor:
                     else:
                         self._log("⏭️ 跳过LLM动作（演示模式）")
                 
-                # 短暂延迟，避免过快执行
                 await asyncio.sleep(0.5)
             
-            # 7. 关闭环境
             self._log("")
             self._log("🔚 关闭环境...")
             await env.close()
             
-            # 8. 从数据库读取真实统计数据
             self._log("📊 统计数据库中的真实数据...")
             import sqlite3
             try:
                 conn = sqlite3.connect(str(self.task.db_path))
                 cursor = conn.cursor()
                 
-                # 统计帖子数量（表名是 post，不是 posts）
                 cursor.execute("SELECT COUNT(*) FROM post")
                 self.task.stats.posts_created = cursor.fetchone()[0]
                 
-                # 统计评论数量（表名是 comment，不是 comments）
                 cursor.execute("SELECT COUNT(*) FROM comment")
                 self.task.stats.comments_created = cursor.fetchone()[0]
                 
@@ -296,10 +260,6 @@ class SimulationExecutor:
             raise
     
     async def _seed_initial_posts(self, env, agent_graph):
-        """
-        播种初始帖子以启动社交互动
-        参考 weibo_simulation_openai.py 的逻辑
-        """
         from oasis import ActionType, ManualAction
         
         self._log("")
@@ -310,7 +270,6 @@ class SimulationExecutor:
         for i in range(num_to_seed):
             agent_id = self.task.config.seed_agent_ids[i]
             
-            # 确保agent_id有效
             try:
                 agent = env.agent_graph.get_agent(agent_id)
             except Exception as e:
@@ -334,8 +293,6 @@ class SimulationExecutor:
         self._log("")
     
     def _generate_seed_post_content(self, agent_id: int, index: int) -> str:
-        """生成seed帖子的内容"""
-        # 尝试从数据集读取真实内容
         try:
             dataset_path = Path(self.task.config.dataset_path)
             if not dataset_path.is_absolute():
@@ -347,7 +304,6 @@ class SimulationExecutor:
                 data = json.loads(dataset_path.read_text(encoding='utf-8'))
                 if isinstance(data, list) and len(data) > agent_id:
                     record = data[agent_id]
-                    # 提取帖子内容
                     posts_section = record.get("近期发帖内容分析", {})
                     all_posts = posts_section.get("全部帖子合集", [])
                     if all_posts and len(all_posts) > 0:
@@ -357,7 +313,6 @@ class SimulationExecutor:
         except Exception as e:
             self._log(f"  ⚠️ 读取数据集失败，使用默认模板: {e}")
         
-        # 回退到默认模板
         templates = [
             "大家好，很高兴加入这个社区！期待和大家交流。",
             "刚注册完账号，有没有大佬能介绍一下这里的规则？",
@@ -373,7 +328,6 @@ class SimulationExecutor:
         return templates[index % len(templates)]
     
     async def _mock_simulation(self):
-        """模拟执行（用于演示，当oasis不可用时）"""
         self._log("🎭 使用Mock演示模式...")
         self.task.stats.users_created = self.task.config.num_agents
         

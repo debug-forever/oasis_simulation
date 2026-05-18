@@ -1,39 +1,28 @@
 <template>
   <div class="network-view">
-    <!-- 控制面板 -->
     <div class="card controls-panel">
       <h3 class="panel-title">🔗 互动网络可视化</h3>
       
       <div class="control-row">
-        <!-- 可视化类型选择 -->
         <div class="control-group">
           <h3>用户关系网络</h3>
         </div>
 
-        <!-- 刷新按钮 -->
         <el-button type="primary" @click="loadData" size="small" :loading="loading">
           🔄 刷新数据
         </el-button>
       </div>
-
-
-
-
     </div>
 
-    <!-- 加载状态 -->
     <div v-if="loading" class="loading-state">
       <el-skeleton :rows="8" animated />
     </div>
 
-    <!-- 可视化容器 -->
     <div v-else-if="hasData" class="visualization-container">
-      <!-- 图表 - 学习传播图谱的结构 -->
       <div class="chart-panel">
         <div ref="relationshipChart" class="chart"></div>
       </div>
 
-      <!-- 统计信息卡片 - 浮动 -->
       <div class="card stats-card" v-if="stats">
         <h4>📊 网络统计</h4>
         <div class="stats-grid">
@@ -48,7 +37,6 @@
         </div>
       </div>
 
-      <!-- 详情面板 - 浮动 -->
       <div class="card details-panel" v-if="selectedNode">
         <h4>👤 节点详情</h4>
         <div class="detail-content">
@@ -62,7 +50,6 @@
       </div>
     </div>
 
-    <!-- 空状态 -->
     <div v-else class="empty-state">
       <p>{{ emptyMessage }}</p>
     </div>
@@ -72,24 +59,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
-import axios from 'axios'
+import { networkAPI } from '@/api'
 
-const API_BASE = 'http://localhost:8001'
-
-// ========== 状态管理 ==========
 const loading = ref(false)
 const graphData = ref(null)
 const selectedNode = ref(null)
-
-// 各类型配置参数
-const relationshipLimit = ref(100)
-const minFollowers = ref(0)
-
-// 图表实例
 const relationshipChart = ref(null)
 const chartInstance = ref(null)
 
-// ========== 计算属性 ==========
 const hasData = computed(() => graphData.value !== null)
 
 const stats = computed(() => {
@@ -101,33 +78,26 @@ const emptyMessage = computed(() => {
   return '暂无数据，请点击刷新数据'
 })
 
-// ========== 数据加载 ==========
 const loadData = async () => {
   loading.value = true
   selectedNode.value = null
   
   try {
-    const response = await axios.get(`${API_BASE}/api/network/relationship-graph`, {
-      params: { limit: 2000, min_followers: 0 }
-    })
+    const response = await networkAPI.getRelationshipGraph({ limit: 2000, min_followers: 0 })
     
-    if (response && response.data.success) {
-      console.log('Network data loaded:', response.data.data)
-      // Force uniform node size
-      if (response.data.data.nodes) {
-        response.data.data.nodes.forEach(node => {
+    if (response?.success) {
+      if (response.data.nodes) {
+        response.data.nodes.forEach(node => {
           node.symbolSize = 25
         })
       }
-      graphData.value = response.data.data
+      graphData.value = response.data
       loading.value = false
       await nextTick()
       renderVisualization()
-      // 延迟再次resize确保图表正确填充容器
       setTimeout(() => {
         if (chartInstance.value) {
           chartInstance.value.resize()
-          console.log('Delayed resize completed')
         }
       }, 100)
     } else {
@@ -140,29 +110,18 @@ const loadData = async () => {
   }
 }
 
-// ========== 可视化渲染 ==========
 const renderVisualization = () => {
     renderRelationshipGraph()
 }
 
-// 关系网络图
 const renderRelationshipGraph = () => {
-  console.log('Rendering Graph:', { 
-    hasElement: !!relationshipChart.value, 
-    hasData: !!graphData.value,
-    nodes: graphData.value?.nodes?.length,
-    links: graphData.value?.links?.length 
-  })
-
   if (!relationshipChart.value || !graphData.value) return
   
   if (!chartInstance.value) {
     chartInstance.value = echarts.init(relationshipChart.value)
-    
-    // 监听缩放事件 - 学习传播图谱
-    chartInstance.value.on('graphroam', (params) => {
-      if (params.zoom != null) {
-        console.log('Graph zoomed:', params.zoom)
+    chartInstance.value.on('click', (params) => {
+      if (params.dataType === 'node') {
+        selectedNode.value = params.data
       }
     })
   } else {
@@ -213,7 +172,6 @@ const renderRelationshipGraph = () => {
       top: 50,
       textStyle: { color: '#fff' }
     },
-    // 关键：添加grid配置扩大可用区域
     grid: {
       left: 0,
       right: 0,
@@ -227,15 +185,12 @@ const renderRelationshipGraph = () => {
       data: graphData.value.nodes,
       links: graphData.value.links,
       categories: graphData.value.categories,
-      // 核心配置：允许无限制的缩放和拖拽
       roam: true,
       scaleLimit: {
         min: 0.01,
         max: 100
       },
-      // 调整初始zoom，0.3-0.5是比较好的全局预览值
       zoom: 0.35,
-      // 图表占满整个容器
       left: '5%',
       right: '5%',
       top: '10%',
@@ -246,7 +201,6 @@ const renderRelationshipGraph = () => {
       edgeSymbolSize: [6, 15],
       zlevel: 1,
       force: {
-        // 增大repulsion让节点分散更开
         repulsion: 1500,
         gravity: 0.08,
         edgeLength: [80, 250],
@@ -284,18 +238,10 @@ const renderRelationshipGraph = () => {
     lazyUpdate: false
   })
   
-  // 强制resize确保图表占满容器
   chartInstance.value.resize()
   
-  // 点击节点事件
-  chartInstance.value.on('click', (params) => {
-    if (params.dataType === 'node') {
-        selectedNode.value = params.data
-    }
-  })
 }
 
-// ========== 生命周期 ==========
 onMounted(() => {
   loadData()
   window.addEventListener('resize', handleResize)
@@ -320,13 +266,11 @@ const handleResize = () => {
   width: 100%;
   display: flex;
   flex-direction: column;
-  /* 允许子元素超出边界以支持更大的拖拽 */
   overflow: visible;
   position: relative;
   border-radius: 12px;
 }
 
-/* Top Toolbar (Controls) */
 .controls-panel {
   position: relative;
   width: 100%;
@@ -357,7 +301,6 @@ const handleResize = () => {
   margin: 0;
 }
 
-/* Main Visualization Area - 学习传播图谱的布局 */
 .visualization-container {
   flex: 1;
   display: flex;
@@ -376,7 +319,6 @@ const handleResize = () => {
 
 .chart {
   width: 100%;
-  /* 关键：使用固定高度，与传播图谱一致 */
   height: 800px;
   min-height: 800px;
   position: relative;
@@ -384,7 +326,6 @@ const handleResize = () => {
   overflow: visible !important;
 }
 
-/* Floating Overlays (Stats & Details) */
 .card {
   background: rgba(20, 20, 35, 0.7);
   backdrop-filter: blur(12px);
@@ -418,7 +359,6 @@ const handleResize = () => {
   z-index: 10;
 }
 
-/* Rest of styles... */
 .stats-card h4 {
   margin-bottom: 15px;
   font-size: 18px;
@@ -488,7 +428,6 @@ const handleResize = () => {
   pointer-events: none;
 }
 
-/* Dark theme element overrides */
 :deep(.el-button--primary) {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border: none;

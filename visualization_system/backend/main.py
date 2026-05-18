@@ -1,10 +1,8 @@
-"""
-FastAPI主应用
-"""
+"""FastAPI application entrypoint."""
+import logging
 import sys
 from pathlib import Path
 
-# 添加项目根目录到Python路径，以便找到oasis模块
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -12,41 +10,40 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-# 使用绝对导入避免相对导入问题
 from api import users, posts, analytics, simulation, network, va
 from database.db_manager import get_db_manager
 
-# 创建FastAPI应用
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="微博仿真可视化系统 API",
     description="Oasis Weibo Simulation Visualization System",
     version="1.0.0"
 )
 
-# 配置CORS - 允许前端跨域访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应该指定具体域名
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# 注册路由
-
-# 注册路由
-app.include_router(users.router)
-app.include_router(posts.router)
-app.include_router(analytics.router)
-app.include_router(simulation.router)  # 新增：模拟功能
-app.include_router(network.router)  # 新增：网络分析功能
-app.include_router(va.router)  # 新增：可视分析（生命周期/关键群体/关键用户）
+for router in (
+    users.router,
+    posts.router,
+    analytics.router,
+    simulation.router,
+    network.router,
+    va.router,
+):
+    app.include_router(router)
 
 
 @app.get("/")
 async def root():
-    """根路径 - API信息"""
     return {
         "name": "微博仿真可视化系统 API",
         "version": "1.0.0",
@@ -62,7 +59,6 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """健康检查"""
     try:
         db = get_db_manager()
         stats = db.get_table_stats()
@@ -83,31 +79,32 @@ async def health_check():
 
 @app.on_event("startup")
 async def startup_event():
-    """应用启动事件"""
-    print("=" * 60)
-    print("微博仿真可视化系统 API 启动中...")
+    logger.info("微博仿真可视化系统 API 启动中...")
     
     try:
         db = get_db_manager()
         stats = db.get_table_stats()
         time_range = db.get_time_range()
-        
-        print(f"数据库连接成功: {db.db_path}")
-        print(f"数据统计:")
-        print(f"  - 用户数: {stats.get('user', 0)}")
-        print(f"  - 帖子数: {stats.get('post', 0)}")
-        print(f"  - 评论数: {stats.get('comment', 0)}")
-        print(f"  - 点赞数: {stats.get('like', 0)}")
-        print(f"数据时间范围: {time_range.get('min_time')} ~ {time_range.get('max_time')}")
-        print("=" * 60)
-        print("API文档地址: http://localhost:8001/docs")
-        print("=" * 60)
+
+        logger.info("数据库连接成功: %s", db.db_path)
+        logger.info(
+            "数据统计: users=%s posts=%s comments=%s likes=%s",
+            stats.get("user", 0),
+            stats.get("post", 0),
+            stats.get("comment", 0),
+            stats.get("like", 0),
+        )
+        logger.info(
+            "数据时间范围: %s ~ %s",
+            time_range.get("min_time"),
+            time_range.get("max_time"),
+        )
+        logger.info("API文档地址: http://localhost:8001/docs")
     except Exception as e:
-        print(f"警告: 数据库连接失败 - {e}")
-        print("请确保数据库文件存在并设置正确的路径")
+        logger.warning("数据库连接失败: %s", e)
 
 
 if __name__ == "__main__":
     import uvicorn
-    # 端口需与前端 vite.config.js 的代理 target 一致（8001）
+
     uvicorn.run(app, host="0.0.0.0", port=8001)

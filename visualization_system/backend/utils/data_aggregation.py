@@ -1,12 +1,12 @@
-"""
-数据聚合工具模块
-提供数据统计、传播树构建等功能
-"""
-from typing import List, Dict, Any, Optional, Set, Tuple
+import logging
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 from collections import defaultdict
 import math
 import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 
 def parse_timestamp(ts_str: str) -> Optional[int]:
@@ -29,8 +29,8 @@ def parse_timestamp(ts_str: str) -> Optional[int]:
         else:
             dt = datetime.strptime(str(ts_str), '%Y-%m-%d %H:%M:%S')
         return int(dt.timestamp())
-    except Exception as e:
-        print(f"Warning: Could not parse timestamp '{ts_str}': {e}")
+    except Exception:
+        logger.warning("Could not parse timestamp: %s", ts_str)
         return None
 
 
@@ -689,8 +689,6 @@ def build_all_posts_propagation(
         }
     }
 
-
-# ========== 网络分析函数 ==========
 
 def build_relationship_network(db_manager, limit: int = 100, min_followers: int = 0) -> Dict[str, Any]:
     """

@@ -1,12 +1,13 @@
-"""
-帖子相关API端点
-"""
+import logging
+import time
+
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from database.db_manager import get_db_manager
 from utils.data_aggregation import build_propagation_tree, get_trending_posts
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -203,20 +204,20 @@ async def get_all_posts_propagation(
     获取所有帖子的传播图谱
     用于可视化整个社交网络的传播路径
     """
-    import time
     from utils.data_aggregation import build_all_posts_propagation
     
     db = get_db_manager()
-    
-    print(f"\n=== Starting build_all_posts_propagation ===")
-    print(f"Parameters: start_time={start_time}, end_time={end_time}, limit={limit}")
     start = time.time()
     
     graph_data = build_all_posts_propagation(db, start_time, end_time, limit)
     
     elapsed = time.time() - start
-    print(f"=== Completed in {elapsed:.2f}s ===")
-    print(f"Nodes: {len(graph_data.get('nodes', []))}, Links: {len(graph_data.get('links', []))}")
+    logger.info(
+        "Built propagation graph in %.2fs: nodes=%s links=%s",
+        elapsed,
+        len(graph_data.get("nodes", [])),
+        len(graph_data.get("links", [])),
+    )
     
     return graph_data
 

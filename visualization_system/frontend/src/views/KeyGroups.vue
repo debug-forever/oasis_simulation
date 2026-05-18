@@ -282,7 +282,7 @@ const onModeChange = () => {
   }
   nextTick(() => { renderScatter(); renderRank(); renderAB() })
 }
-const renderAB = () => { /* 表格驱动的 props 自动响应，无需额外绘制 */ }
+const renderAB = () => {}
 
 const onReady = async () => {
   try {

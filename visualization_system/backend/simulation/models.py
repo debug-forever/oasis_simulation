@@ -1,13 +1,9 @@
-"""
-模拟功能的数据模型
-"""
 from typing import Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
 
 
 class SimStatus(str, Enum):
-    """模拟任务状态"""
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -16,7 +12,6 @@ class SimStatus(str, Enum):
 
 
 class SimConfig:
-    """模拟配置"""
     def __init__(
         self,
         num_agents: int = 10,
@@ -44,12 +39,10 @@ class SimConfig:
         self.seed_agent_ids = seed_agent_ids if seed_agent_ids is not None else list(range(num_seed_posts))
     
     def _generate_db_name(self) -> str:
-        """生成默认数据库名称"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"sim_{timestamp}.db"
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
         return {
             "num_agents": self.num_agents,
             "num_rounds": self.num_rounds,
@@ -66,7 +59,6 @@ class SimConfig:
 
 
 class SimProgress:
-    """模拟进度信息"""
     def __init__(self):
         self.current_round = 0
         self.total_rounds = 0
@@ -74,14 +66,12 @@ class SimProgress:
         self.current_action = ""
     
     def update(self, current_round: int, total_rounds: int, action: str = ""):
-        """更新进度"""
         self.current_round = current_round
         self.total_rounds = total_rounds
         self.percentage = (current_round / total_rounds * 100) if total_rounds > 0 else 0
         self.current_action = action
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
         return {
             "current_round": self.current_round,
             "total_rounds": self.total_rounds,
@@ -91,7 +81,6 @@ class SimProgress:
 
 
 class SimStats:
-    """模拟统计信息"""
     def __init__(self):
         self.users_created = 0
         self.posts_created = 0
@@ -99,7 +88,6 @@ class SimStats:
         self.elapsed_time = 0.0
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
         return {
             "users_created": self.users_created,
             "posts_created": self.posts_created,
@@ -109,7 +97,6 @@ class SimStats:
 
 
 class SimulationTask:
-    """模拟任务信息"""
     def __init__(self, task_id: str, config: SimConfig):
         self.task_id = task_id
         self.config = config
@@ -124,7 +111,6 @@ class SimulationTask:
         self.logs: list[str] = []
     
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
         return {
             "id": self.task_id,
             "status": self.status.value,
