@@ -35,7 +35,8 @@
       "Bash(curl -s -m 2 http://127.0.0.1:8001/health -o nul -w \"8001:%{http_code}\\\\n\")",
       "Bash(curl -s -m 3 http://127.0.0.1:8001/health -o nul -w \"health:%{http_code}\\\\n\")",
       "Bash(curl -s -m 3 http://127.0.0.1:8001/api/va/status -w \"\\\\n\")",
-      "PowerShell(Get-NetTCPConnection *)"
+      "PowerShell(Get-NetTCPConnection *)",
+      "WebSearch"
     ]
   }
 }
