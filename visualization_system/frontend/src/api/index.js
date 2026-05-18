@@ -204,6 +204,13 @@ export const vaAPI = {
         return api.get('/va/lifecycle', { params })
     },
 
+    // 阶段对比 —— 选两个阶段，看 breakdown 维度的占比变化与 lift
+    compareLifecycle(phaseA, phaseB, breakdown = 'event.action_type', filters = null) {
+        const params = { phase_a: phaseA, phase_b: phaseB, breakdown }
+        if (filters && filters.length) params.filters = JSON.stringify(filters)
+        return api.get('/va/lifecycle/compare', { params })
+    },
+
     // 关键群体识别（需求2）
     getKeyGroups(groupBy = 'user.profession', filters = null, phase = null) {
         const params = { group_by: groupBy }
@@ -227,6 +234,11 @@ export const vaAPI = {
     // 个体下钻
     getUserDetail(userId) {
         return api.get(`/va/user/${userId}`)
+    },
+
+    // 个体影响力获取路径
+    getInfluencePath(userId) {
+        return api.get(`/va/user/${userId}/influence-path`)
     }
 }
 

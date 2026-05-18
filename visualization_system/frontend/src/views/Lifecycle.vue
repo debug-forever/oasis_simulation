@@ -6,18 +6,37 @@
       <!-- 控制栏 -->
       <div class="card control-bar">
         <span class="ctrl-label">拆解维度</span>
-        <el-select v-model="breakdown" size="default" style="width: 180px" @change="fetchData">
+        <el-select v-model="breakdown" size="default" style="width: 180px" @change="onChange">
           <el-option v-for="d in breakdownOptions" :key="d.id" :label="d.name" :value="d.id" />
         </el-select>
+
+        <template v-if="mode === 'compare'">
+          <span class="ctrl-label">对照基线</span>
+          <el-select v-model="phaseA" size="default" style="width: 110px" @change="onChange">
+            <el-option v-for="p in phaseList" :key="p" :label="p" :value="p" />
+          </el-select>
+          <span class="ctrl-arrow">→</span>
+          <span class="ctrl-label">对比阶段</span>
+          <el-select v-model="phaseB" size="default" style="width: 110px" @change="onChange">
+            <el-option v-for="p in phaseList" :key="p" :label="p" :value="p" />
+          </el-select>
+        </template>
+
         <div class="spacer" />
-        <span v-if="lockedPhase" class="locked-tag">
+
+        <el-radio-group v-model="mode" size="small" @change="onModeChange">
+          <el-radio-button label="single">整体走势</el-radio-button>
+          <el-radio-button label="compare">阶段对比</el-radio-button>
+        </el-radio-group>
+
+        <span v-if="lockedPhase && mode==='single'" class="locked-tag">
           当前聚焦：<b>{{ lockedPhase }}</b>
           <el-button link size="small" @click="clearLock">取消</el-button>
         </span>
       </div>
 
       <!-- 四阶段卡片：点击可锁定为「关键阶段」供后续分析 -->
-      <div class="phase-cards">
+      <div v-if="mode==='single'" class="phase-cards">
         <div
           v-for="ph in phases"
           :key="ph.phase"
@@ -48,33 +67,92 @@
         </div>
       </div>
 
-      <!-- 生命周期主轴 -->
-      <div class="card chart-card">
-        <h3 class="chart-title">📈 舆情生命周期主轴 —— 事件量与情感走势</h3>
-        <div ref="mainChart" class="chart" style="height: 380px"></div>
-      </div>
+      <!-- 单阶段模式：主轴 + 堆叠流 + 阶段构成 -->
+      <template v-if="mode==='single'">
+        <div class="card chart-card">
+          <h3 class="chart-title">📈 舆情生命周期主轴 —— 事件量与情感走势</h3>
+          <div ref="mainChart" class="chart" style="height: 380px"></div>
+        </div>
 
-      <div class="chart-row">
-        <!-- 阶段构成堆叠流图 -->
-        <div class="card chart-card">
-          <h3 class="chart-title">🌊 {{ breakdownName }} 构成随时间演化</h3>
-          <div ref="streamChart" class="chart" style="height: 340px"></div>
-        </div>
-        <!-- 各阶段维度构成对比 -->
-        <div class="card chart-card">
-          <h3 class="chart-title">📊 各阶段 {{ breakdownName }} 构成对比</h3>
-          <div class="mini-toggle">
-            <el-radio-group v-model="snapMode" size="small" @change="renderSnapshot">
-              <el-radio-button label="absolute">绝对量</el-radio-button>
-              <el-radio-button label="ratio">占比</el-radio-button>
-            </el-radio-group>
+        <div class="chart-row">
+          <div class="card chart-card">
+            <h3 class="chart-title">🌊 {{ breakdownName }} 构成随时间演化</h3>
+            <div ref="streamChart" class="chart" style="height: 340px"></div>
           </div>
-          <div ref="snapChart" class="chart" style="height: 300px"></div>
+          <div class="card chart-card">
+            <h3 class="chart-title">📊 各阶段 {{ breakdownName }} 构成对比</h3>
+            <div class="mini-toggle">
+              <el-radio-group v-model="snapMode" size="small" @change="renderSnapshot">
+                <el-radio-button label="absolute">绝对量</el-radio-button>
+                <el-radio-button label="ratio">占比</el-radio-button>
+              </el-radio-group>
+            </div>
+            <div ref="snapChart" class="chart" style="height: 300px"></div>
+          </div>
         </div>
-      </div>
+      </template>
+
+      <!-- 阶段对比模式：A vs B 总览 + lift 条 + 占比并排 -->
+      <template v-else>
+        <div class="cmp-summary">
+          <div class="cmp-side" :class="{ baseline: true }">
+            <div class="cmp-head"><b>{{ cmp.phase_a?.name }}</b><span>基线</span></div>
+            <div class="cmp-stats">
+              <div><b>{{ cmp.phase_a?.event_count }}</b><span>事件</span></div>
+              <div><b>{{ cmp.phase_a?.active_users }}</b><span>活跃用户</span></div>
+              <div><b>{{ cmp.phase_a?.avg_sentiment }}</b><span>平均情感</span></div>
+              <div><b>{{ pctText(cmp.phase_a?.neg_ratio) }}</b><span>负面占比</span></div>
+              <div><b>{{ pctText(cmp.phase_a?.rec_ratio) }}</b><span>推荐驱动</span></div>
+            </div>
+          </div>
+          <div class="cmp-side">
+            <div class="cmp-head"><b>{{ cmp.phase_b?.name }}</b><span>对比</span></div>
+            <div class="cmp-stats">
+              <div><b>{{ cmp.phase_b?.event_count }}</b>
+                <span>事件 <em :class="deltaCls(cmp.phase_b?.event_count - cmp.phase_a?.event_count)">
+                  {{ deltaText(cmp.phase_b?.event_count - cmp.phase_a?.event_count) }}</em></span>
+              </div>
+              <div><b>{{ cmp.phase_b?.active_users }}</b>
+                <span>活跃用户 <em :class="deltaCls(cmp.phase_b?.active_users - cmp.phase_a?.active_users)">
+                  {{ deltaText(cmp.phase_b?.active_users - cmp.phase_a?.active_users) }}</em></span>
+              </div>
+              <div><b>{{ cmp.phase_b?.avg_sentiment }}</b>
+                <span>平均情感 <em :class="deltaCls(cmp.phase_b?.avg_sentiment - cmp.phase_a?.avg_sentiment)">
+                  {{ deltaText(cmp.phase_b?.avg_sentiment - cmp.phase_a?.avg_sentiment, 3) }}</em></span>
+              </div>
+              <div><b>{{ pctText(cmp.phase_b?.neg_ratio) }}</b>
+                <span>负面占比 <em :class="deltaCls(cmp.phase_b?.neg_ratio - cmp.phase_a?.neg_ratio)">
+                  {{ deltaPct(cmp.phase_b?.neg_ratio - cmp.phase_a?.neg_ratio) }}</em></span>
+              </div>
+              <div><b>{{ pctText(cmp.phase_b?.rec_ratio) }}</b>
+                <span>推荐驱动 <em :class="deltaCls(cmp.phase_b?.rec_ratio - cmp.phase_a?.rec_ratio)">
+                  {{ deltaPct(cmp.phase_b?.rec_ratio - cmp.phase_a?.rec_ratio) }}</em></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-row">
+          <div class="card chart-card">
+            <h3 class="chart-title">
+              ⚖️ {{ breakdownName }} 占比 lift（B / A）
+              <el-tooltip placement="top"
+                content="lift>1 表示该桶在对比阶段占比变大；<1 表示变小；=1 几乎无变化。按 |lift-1| 排序，最显著的变化排在前面。">
+                <span class="info-dot">?</span>
+              </el-tooltip>
+            </h3>
+            <div ref="liftChart" class="chart" style="height: 380px"></div>
+          </div>
+          <div class="card chart-card">
+            <h3 class="chart-title">📊 {{ breakdownName }} 占比并排</h3>
+            <div ref="cmpRatioChart" class="chart" style="height: 380px"></div>
+          </div>
+        </div>
+      </template>
 
       <div class="next-hint card">
-        <span>点击上方阶段卡片可聚焦该阶段</span>
+        <span v-if="mode==='single'">点击上方阶段卡片可聚焦该阶段</span>
+        <span v-else>正在对比「{{ phaseA }}」与「{{ phaseB }}」，下方分析自动套用对比阶段</span>
         <el-button type="primary" plain size="small" @click="$router.push('/key-groups')">
           进入关键群体识别 →
         </el-button>
@@ -112,10 +190,18 @@ const snapshots = ref([])
 const snapMode = ref('absolute')
 const lockedPhase = ref(localStorage.getItem('va_locked_phase') || '')
 
+const mode = ref('single')        // single | compare
+const phaseA = ref('潜伏期')
+const phaseB = ref('爆发期')
+const cmp = ref({})
+const phaseList = computed(() => phases.value.map(p => p.phase))
+
 const mainChart = ref(null)
 const streamChart = ref(null)
 const snapChart = ref(null)
-let mainInst, streamInst, snapInst
+const liftChart = ref(null)
+const cmpRatioChart = ref(null)
+let mainInst, streamInst, snapInst, liftInst, cmpRatioInst
 
 const fmt = (s) => (s || '').slice(5, 16)
 const pct = (v, ph) => {
@@ -126,6 +212,26 @@ const bucketLabel = (b) => (b === null || b === undefined || b === '') ? '其他
   : (b === 1 || b === '1') ? '推荐驱动' : (b === 0 || b === '0') ? '自然到达' : String(b)
 
 const onReady = () => { ready.value = true; nextTick(fetchData) }
+
+const onChange = () => {
+  if (mode.value === 'single') fetchData()
+  else fetchCompare()
+}
+const onModeChange = async () => {
+  // 切换到对比模式时若两阶段相同，默认取相邻两阶段
+  if (mode.value === 'compare' && phaseA.value === phaseB.value) {
+    const list = phaseList.value
+    if (list.length >= 2) { phaseA.value = list[0]; phaseB.value = list[1] }
+  }
+  await nextTick()
+  onChange()
+}
+const pctText = (v) => v == null ? '-' : (v * 100).toFixed(1) + '%'
+const deltaText = (v, n=0) => v == null || isNaN(v) ? '' :
+  ((v > 0 ? '+' : '') + (n ? v.toFixed(n) : v.toString()))
+const deltaPct = (v) => v == null || isNaN(v) ? '' :
+  ((v > 0 ? '+' : '') + (v * 100).toFixed(1) + 'pp')
+const deltaCls = (v) => v == null ? '' : (v > 0 ? 'up' : v < 0 ? 'down' : '')
 
 const lockPhase = (p) => {
   lockedPhase.value = p
@@ -144,6 +250,12 @@ const fetchData = async () => {
     timeline.value = res.timeline || []
     timelineBreakdown.value = res.timeline_breakdown || []
     snapshots.value = res.snapshots || []
+    // 若对比模式从未初始化，把 A/B 设为前两阶段
+    if (phaseList.value.length >= 2 && (!phaseList.value.includes(phaseA.value)
+      || !phaseList.value.includes(phaseB.value))) {
+      phaseA.value = phaseList.value[0]
+      phaseB.value = phaseList.value[1]
+    }
     await nextTick()
     renderMain()
     renderStream()
@@ -151,6 +263,33 @@ const fetchData = async () => {
   } catch (e) {
     console.error(e)
     ElMessage.error('加载生命周期数据失败')
+  }
+}
+
+const fetchCompare = async () => {
+  if (!phaseA.value || !phaseB.value) return
+  // 阶段元数据可能还没加载，先确保 phases 有数据
+  if (!phases.value.length) {
+    try {
+      const r0 = await vaAPI.getLifecycle(breakdown.value)
+      phases.value = r0.phases || []
+      if (phaseList.value.length >= 2) {
+        phaseA.value = phaseList.value[0]; phaseB.value = phaseList.value[1]
+      }
+    } catch (e) { /* ignore */ }
+  }
+  if (phaseA.value === phaseB.value) {
+    ElMessage.warning('请选择两个不同的阶段进行对比')
+    return
+  }
+  try {
+    cmp.value = await vaAPI.compareLifecycle(phaseA.value, phaseB.value, breakdown.value)
+    await nextTick()
+    renderLift()
+    renderCmpRatio()
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('加载阶段对比数据失败')
   }
 }
 
@@ -270,11 +409,74 @@ const renderSnapshot = () => {
   })
 }
 
+const renderLift = () => {
+  if (!liftChart.value) return
+  liftInst = liftInst || echarts.init(liftChart.value)
+  const list = (cmp.value.comparison || []).slice(0, 14).reverse()
+  const labels = list.map(c => bucketLabel(c.bucket))
+  const lifts = list.map(c => c.lift == null ? 0 : c.lift - 1)
+  liftInst.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(26,26,46,0.95)', borderColor: '#667eea', textStyle: { color: '#fff' },
+      formatter: p => {
+        const r = list[p[0].dataIndex]
+        return `<b>${bucketLabel(r.bucket)}</b><br/>`
+          + `${cmp.value.phase_a?.name} 占比 ${(r.ratio_a*100).toFixed(2)}%<br/>`
+          + `${cmp.value.phase_b?.name} 占比 ${(r.ratio_b*100).toFixed(2)}%<br/>`
+          + `lift ${r.lift ?? '—'}（${r.lift==null?'-':r.lift>1?'↑':'↓'}）`
+      }
+    },
+    grid: { left: 130, right: 40, top: 10, bottom: 30 },
+    xAxis: { type: 'value', name: 'lift − 1', nameTextStyle: { color: '#b8b8d1' },
+      axisLabel: { color: '#b8b8d1', formatter: v => (v >= 0 ? '+' : '') + v.toFixed(2) },
+      splitLine: { lineStyle: { color: '#2d2d44', type: 'dashed' } } },
+    yAxis: { type: 'category', data: labels, axisLabel: { color: '#b8b8d1' },
+      axisLine: { lineStyle: { color: '#2d2d44' } } },
+    series: [{
+      type: 'bar', data: lifts.map(v => ({
+        value: v,
+        itemStyle: { color: v > 0 ? '#ff6b6b' : v < 0 ? '#5b8ff9' : '#71717a',
+          borderRadius: [0, 4, 4, 0] }
+      })),
+      label: { show: true, color: '#b8b8d1', position: 'insideRight',
+        formatter: p => p.value === 0 ? '' : (p.value > 0 ? '+' : '') + p.value.toFixed(2) }
+    }]
+  })
+}
+
+const renderCmpRatio = () => {
+  if (!cmpRatioChart.value) return
+  cmpRatioInst = cmpRatioInst || echarts.init(cmpRatioChart.value)
+  const list = (cmp.value.comparison || []).slice(0, 14)
+  const labels = list.map(c => bucketLabel(c.bucket))
+  cmpRatioInst.setOption({
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(26,26,46,0.95)', borderColor: '#667eea', textStyle: { color: '#fff' },
+      valueFormatter: v => (v * 100).toFixed(2) + '%' },
+    legend: { top: 0, textStyle: { color: '#b8b8d1' } },
+    grid: { left: 50, right: 20, top: 36, bottom: 60 },
+    xAxis: { type: 'category', data: labels, axisLabel: { color: '#b8b8d1', rotate: 30 },
+      axisLine: { lineStyle: { color: '#2d2d44' } } },
+    yAxis: { type: 'value', axisLabel: { color: '#b8b8d1', formatter: '{value}' },
+      splitLine: { lineStyle: { color: '#2d2d44', type: 'dashed' } } },
+    series: [
+      { name: cmp.value.phase_a?.name, type: 'bar',
+        data: list.map(c => c.ratio_a), itemStyle: { color: '#5b8ff9' } },
+      { name: cmp.value.phase_b?.name, type: 'bar',
+        data: list.map(c => c.ratio_b), itemStyle: { color: '#ff6b6b' } }
+    ]
+  })
+}
+
 onMounted(() => {
   window.addEventListener('resize', () => {
     mainInst && mainInst.resize()
     streamInst && streamInst.resize()
     snapInst && snapInst.resize()
+    liftInst && liftInst.resize()
+    cmpRatioInst && cmpRatioInst.resize()
   })
 })
 </script>
@@ -318,6 +520,28 @@ onMounted(() => {
 .next-hint { padding: var(--spacing-md) var(--spacing-lg); font-size: 13px;
   color: var(--text-secondary); display: flex; align-items: center;
   justify-content: space-between; gap: var(--spacing-md); }
+.ctrl-arrow { color: var(--text-muted); font-size: 16px; }
+
+.cmp-summary { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md); }
+.cmp-side { background: var(--bg-secondary); border: 1px solid var(--border-color);
+  border-radius: var(--radius-md); padding: var(--spacing-md) var(--spacing-lg); }
+.cmp-side.baseline { border-left: 3px solid #5b8ff9; }
+.cmp-side:not(.baseline) { border-left: 3px solid #ff6b6b; }
+.cmp-head { display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: var(--spacing-sm); }
+.cmp-head b { font-size: 17px; color: var(--text-primary); }
+.cmp-head span { font-size: 11px; color: var(--text-muted); }
+.cmp-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--spacing-sm); }
+.cmp-stats > div { display: flex; flex-direction: column; align-items: center;
+  background: var(--bg-tertiary); border-radius: var(--radius-sm); padding: 6px 4px; }
+.cmp-stats b { font-size: 16px; color: var(--primary-color); }
+.cmp-stats span { font-size: 11px; color: var(--text-muted); margin-top: 2px;
+  display: flex; align-items: center; gap: 4px; }
+.cmp-stats em { font-style: normal; font-size: 10px; padding: 1px 5px; border-radius: 8px;
+  background: var(--bg-secondary); }
+.cmp-stats em.up { color: #ff6b6b; background: rgba(255,107,107,.15); }
+.cmp-stats em.down { color: #4ECDC4; background: rgba(78,205,196,.15); }
 @media (max-width: 1100px) {
   .phase-cards { grid-template-columns: repeat(2, 1fr); }
   .chart-row { grid-template-columns: 1fr; }

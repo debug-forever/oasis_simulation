@@ -377,6 +377,105 @@ async def va_lifecycle(
 
 
 # ---------------------------------------------------------------------------
+# 4b. 阶段对比 —— 两阶段并排对照，给出占比与 lift
+# ---------------------------------------------------------------------------
+@router.get("/lifecycle/compare")
+async def va_lifecycle_compare(
+    phase_a: str = Query(..., description="参照阶段（基线）"),
+    phase_b: str = Query(..., description="对比阶段"),
+    breakdown: str = Query("event.action_type", description="拆解维度"),
+    filters: Optional[str] = Query(None, description="JSON 条件组合"),
+):
+    """
+    选两个阶段 A、B 并排对照：
+      - aggregates: 两阶段的总量指标（事件量/活跃用户/平均情感/正负比/推荐占比）
+      - comparison: 按 breakdown 维度逐桶给出 ratio_a, ratio_b, lift (= ratio_b / ratio_a)
+                    lift > 1 表示该桶在 B 阶段「占比变大」，<1 表示变小。
+    """
+    _require_built()
+    if breakdown not in DIMENSIONS:
+        breakdown = "event.action_type"
+    bexpr = DIMENSIONS[breakdown][2]
+    base_filters = json.loads(filters) if filters else []
+
+    def fetch_phase(phase):
+        f2 = list(base_filters) + [{"dim": "time.phase", "values": [phase]}]
+        where, params = _build_where(f2)
+        conn = _conn()
+        try:
+            agg = _q(conn, f"""
+                SELECT COUNT(*) AS event_count,
+                       COUNT(DISTINCT e.actor_id) AS active_users,
+                       COUNT(DISTINCT e.post_id) AS posts,
+                       AVG(e.sentiment_score) AS avg_sentiment,
+                       SUM(CASE WHEN e.sentiment_class='正面' THEN 1 ELSE 0 END) AS pos,
+                       SUM(CASE WHEN e.sentiment_class='中性' THEN 1 ELSE 0 END) AS neu,
+                       SUM(CASE WHEN e.sentiment_class='负面' THEN 1 ELSE 0 END) AS neg,
+                       AVG(CAST(e.is_rec_driven AS REAL)) AS rec_ratio
+                {BASE_JOIN}{where}
+            """, tuple(params))[0]
+            brk = _q(conn, f"""
+                SELECT {bexpr} AS bucket, COUNT(*) AS cnt,
+                       COUNT(DISTINCT e.actor_id) AS users,
+                       AVG(e.sentiment_score) AS avg_sentiment
+                {BASE_JOIN}{where}
+                GROUP BY bucket
+            """, tuple(params))
+        finally:
+            conn.close()
+        return agg, brk
+
+    agg_a, brk_a = fetch_phase(phase_a)
+    agg_b, brk_b = fetch_phase(phase_b)
+    total_a = agg_a["event_count"] or 1
+    total_b = agg_b["event_count"] or 1
+
+    def _r(v, n=4):
+        return round(v, n) if v is not None else None
+
+    def _norm_agg(a, total):
+        return {
+            "event_count": a["event_count"] or 0,
+            "active_users": a["active_users"] or 0,
+            "posts": a["posts"] or 0,
+            "avg_sentiment": _r(a["avg_sentiment"] or 0),
+            "pos": a["pos"] or 0, "neu": a["neu"] or 0, "neg": a["neg"] or 0,
+            "pos_ratio": _r((a["pos"] or 0) / total),
+            "neg_ratio": _r((a["neg"] or 0) / total),
+            "rec_ratio": _r(a["rec_ratio"] or 0),
+        }
+
+    ma = {r["bucket"]: r for r in brk_a}
+    mb = {r["bucket"]: r for r in brk_b}
+    buckets = sorted(set(list(ma.keys()) + list(mb.keys())), key=lambda x: str(x))
+    comparison = []
+    for b in buckets:
+        ca = (ma.get(b) or {}).get("cnt") or 0
+        cb = (mb.get(b) or {}).get("cnt") or 0
+        ra = ca / total_a
+        rb = cb / total_b
+        lift = (rb / ra) if ra > 0 else None
+        comparison.append({
+            "bucket": b,
+            "count_a": ca, "count_b": cb,
+            "ratio_a": _r(ra), "ratio_b": _r(rb),
+            "lift": _r(lift, 3),
+            "delta_count": cb - ca,
+            "delta_ratio": _r(rb - ra),
+        })
+    # 默认按 |lift-1| 倒序，先看变化最剧烈的桶
+    comparison.sort(key=lambda x: abs((x["lift"] or 1) - 1), reverse=True)
+
+    return {
+        "phase_a": {"name": phase_a, **_norm_agg(agg_a, total_a)},
+        "phase_b": {"name": phase_b, **_norm_agg(agg_b, total_b)},
+        "breakdown": {"id": breakdown, "name": DIMENSIONS[breakdown][0]},
+        "comparison": comparison,
+        "phase_order": ORDINAL_ORDER["time.phase"],
+    }
+
+
+# ---------------------------------------------------------------------------
 # 5. 关键群体识别  （需求 2）
 # ---------------------------------------------------------------------------
 @router.get("/key-groups")
@@ -488,11 +587,61 @@ async def va_key_groups(
             "key_score": key_score,
         })
     groups.sort(key=lambda g: g["key_score"], reverse=True)
+
+    # === 基线 & lift 计算 ===
+    # 基线 = 全部群体加权平均（按事件量加权，规模相关的指标按成员加权）
+    total_members = sum(g["members"] for g in groups) or 1
+    total_events = sum(g["event_count"] for g in groups) or 1
+    total_pos = sum(g["pos"] for g in groups) or 0
+    total_neg = sum(g["neg"] for g in groups) or 0
+    total_recw = sum((g["rec_ratio"] or 0) * (g["event_count"] or 0) for g in groups)
+    total_sentw = sum((g["avg_sentiment"] or 0) * (g["event_count"] or 0) for g in groups)
+    total_inflw = sum((g["avg_influence"] or 0) * (g["members"] or 0) for g in groups)
+
+    base_events_per_member = total_events / total_members
+    base_pos_ratio         = (total_pos / total_events) if total_events else 0
+    base_neg_ratio         = (total_neg / total_events) if total_events else 0
+    base_rec_ratio         = (total_recw / total_events) if total_events else 0
+    base_sentiment         = (total_sentw / total_events) if total_events else 0
+    base_influence         = (total_inflw / total_members) if total_members else 0
+
+    def _safe_lift(num, den):
+        if not den:
+            return None
+        return round(num / den, 3)
+
+    for g in groups:
+        epm = (g["event_count"] / g["members"]) if g["members"] else 0
+        pr  = (g["pos"] / g["event_count"]) if g["event_count"] else 0
+        nr  = (g["neg"] / g["event_count"]) if g["event_count"] else 0
+        g["events_per_member"]    = round(epm, 3)
+        g["pos_ratio"]            = round(pr, 4)
+        g["neg_ratio"]            = round(nr, 4)
+        g["lift_events_per_member"] = _safe_lift(epm, base_events_per_member)
+        g["lift_pos_ratio"]         = _safe_lift(pr,  base_pos_ratio)
+        g["lift_neg_ratio"]         = _safe_lift(nr,  base_neg_ratio)
+        g["lift_rec_ratio"]         = _safe_lift(g["rec_ratio"], base_rec_ratio)
+        g["lift_influence"]         = _safe_lift(g["avg_influence"], base_influence)
+        g["sentiment_delta"]        = round((g["avg_sentiment"] or 0) - base_sentiment, 4)
+
+    baseline = {
+        "events_per_member": round(base_events_per_member, 3),
+        "pos_ratio":         round(base_pos_ratio, 4),
+        "neg_ratio":         round(base_neg_ratio, 4),
+        "rec_ratio":         round(base_rec_ratio, 4),
+        "avg_influence":     round(base_influence, 3),
+        "avg_sentiment":     round(base_sentiment, 4),
+        "total_members":     total_members,
+        "total_events":      total_events,
+        "total_groups":      len(groups),
+    }
+
     return {
         "group_by": {"id": group_by, "name": GROUP_DIMS[group_by][0]},
         "phase": phase,
         "groups": groups,
         "total_groups": len(groups),
+        "baseline": baseline,
     }
 
 
@@ -623,4 +772,77 @@ async def va_user_detail(user_id: int):
     return {
         "profile": profile, "timeline": timeline, "action_mix": action_mix,
         "phase_activity": phase_activity, "posts": posts,
+    }
+
+
+@router.get("/user/{user_id}/influence-path")
+async def va_user_influence_path(user_id: int):
+    """
+    单用户的影响力获取路径：他发布的内容被谁、何时、以何种方式扩散。
+    返回一条时间序列，可用于回答「TA 是被谁带火的 / 谁在帮他扩散」。
+      - 每个事件标注来源用户的影响力分、角色、粉丝数（高影响力来源会显著拉曲线）
+      - 同时给出 cumulative_reposts / likes / comments 三条累计曲线
+    """
+    _require_built()
+    conn = _conn()
+    try:
+        prof = _q(conn, "SELECT user_id, name FROM va_user_dim WHERE user_id=?", (user_id,))
+        if not prof:
+            raise HTTPException(404, "用户不存在")
+        rows = _q(conn, """
+            SELECT e.ts, e.actor_id AS src_user_id, e.action_type, e.post_id,
+                   e.phase, su.name AS src_name, su.role AS src_role,
+                   su.influence_score AS src_influence,
+                   su.num_followers   AS src_followers,
+                   su.influence_tier  AS src_tier
+            FROM va_event_fact e
+            JOIN va_post_dim p ON e.post_id = p.post_id
+            LEFT JOIN va_user_dim su ON e.actor_id = su.user_id
+            WHERE p.user_id = ?
+              AND e.actor_id != ?
+              AND e.ts IS NOT NULL
+              AND e.action_type IN ('repost','comment','like','转发','评论','点赞')
+            ORDER BY e.ts ASC
+        """, (user_id, user_id))
+    finally:
+        conn.close()
+
+    # 标准化 action_type → en（转发/评论/点赞 → repost/comment/like）
+    ZH2EN = {"转发": "repost", "评论": "comment", "点赞": "like"}
+    cum_r = cum_c = cum_l = 0
+    path = []
+    src_agg = {}  # 来源用户聚合
+    for r in rows:
+        a = ZH2EN.get(r["action_type"], r["action_type"])
+        if   a == "repost":  cum_r += 1
+        elif a == "comment": cum_c += 1
+        elif a == "like":    cum_l += 1
+        path.append({
+            "ts": r["ts"], "action_type": a, "phase": r["phase"],
+            "post_id": r["post_id"],
+            "src_user_id": r["src_user_id"], "src_name": r["src_name"],
+            "src_role": r["src_role"], "src_influence": r["src_influence"],
+            "src_followers": r["src_followers"], "src_tier": r["src_tier"],
+            "cum_reposts": cum_r, "cum_comments": cum_c, "cum_likes": cum_l,
+        })
+        sk = r["src_user_id"]
+        if sk not in src_agg:
+            src_agg[sk] = {
+                "src_user_id": sk, "src_name": r["src_name"], "src_role": r["src_role"],
+                "src_influence": r["src_influence"], "src_followers": r["src_followers"],
+                "src_tier": r["src_tier"],
+                "repost": 0, "comment": 0, "like": 0, "total": 0,
+            }
+        if a in ("repost", "comment", "like"):
+            src_agg[sk][a] += 1
+        src_agg[sk]["total"] += 1
+
+    top_sources = sorted(src_agg.values(), key=lambda x: x["repost"] * 3 + x["comment"] * 2 + x["like"],
+                         reverse=True)[:20]
+
+    return {
+        "user_id": user_id, "name": prof[0]["name"],
+        "path": path, "total": len(path),
+        "totals": {"reposts": cum_r, "comments": cum_c, "likes": cum_l},
+        "top_sources": top_sources,
     }

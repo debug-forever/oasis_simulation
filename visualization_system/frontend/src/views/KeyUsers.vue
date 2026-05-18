@@ -57,7 +57,9 @@
           <div ref="roleChart" class="chart" style="height: 300px"></div>
         </div>
         <div class="card chart-card">
-          <h3 class="chart-title">🏆 关键用户排名（Top {{ Math.min(20, users.length) }} · 按{{ sortName }}）</h3>
+          <h3 class="chart-title">
+            🏆 关键用户排名（Top {{ Math.min(20, users.length) }} · 按{{ sortName }}）
+          </h3>
           <div ref="rankChart" class="chart" style="height: 300px"></div>
         </div>
       </div>
@@ -77,7 +79,7 @@
           <el-table-column prop="influence_tier" label="分层" width="80" />
           <el-table-column prop="num_followers" label="粉丝" width="80" sortable />
           <el-table-column prop="pagerank" label="PageRank" width="100" sortable>
-            <template #default="{ row }">{{ (row.pagerank * 1000).toFixed(2) }}‰</template>
+            <template #default="{ row }">{{ ((row.pagerank || 0) * 1000).toFixed(2) }}‰</template>
           </el-table-column>
           <el-table-column prop="post_count" label="原创" width="70" sortable />
           <el-table-column prop="repost_count" label="转发" width="70" sortable />
@@ -115,6 +117,32 @@
           <h4>行为轨迹（逐小时）</h4>
           <div ref="trackChart" style="height: 220px"></div>
         </div>
+
+        <!-- 影响力获取路径 -->
+        <div class="dc-box" v-if="influencePath">
+          <h4>影响力获取路径
+            <span class="dc-sub">
+              共 {{ influencePath.total }} 次外部反馈
+              · 转发 {{ influencePath.totals.reposts }}
+              · 评论 {{ influencePath.totals.comments }}
+              · 点赞 {{ influencePath.totals.likes }}
+            </span>
+          </h4>
+          <div ref="pathChart" style="height: 240px"></div>
+          <div v-if="influencePath.top_sources && influencePath.top_sources.length" class="top-sources">
+            <span class="ts-label">主要扩散来源（按转发×3+评论×2+点赞加权）</span>
+            <div class="ts-list">
+              <div v-for="s in influencePath.top_sources.slice(0, 6)" :key="s.src_user_id"
+                class="ts-chip" :class="(s.src_tier||'').toLowerCase()">
+                <b>{{ s.src_name || '匿名' }}</b>
+                <span class="ts-role">{{ s.src_role || '—' }}</span>
+                <span class="ts-stat">🔁{{ s.repost }} 💬{{ s.comment }} ❤️{{ s.like }}</span>
+                <span class="ts-meta">影响力 {{ s.src_influence ?? '—' }} · 粉丝 {{ s.src_followers ?? 0 }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="drill-posts">
           <h4>发布内容（最近 {{ detail.posts.length }} 条）</h4>
           <div v-for="p in detail.posts" :key="p.post_id" class="post-item">
@@ -151,6 +179,8 @@ const users = ref([])
 const roleDist = ref([])
 const fromGroup = ref('')
 
+const influencePath = ref(null)
+
 const sortOptions = [
   { id: 'influence_score', name: '影响力分数' },
   { id: 'pagerank', name: 'PageRank' },
@@ -175,7 +205,8 @@ const rankChart = ref(null)
 const mixChart = ref(null)
 const phaseChart = ref(null)
 const trackChart = ref(null)
-let roleInst, rankInst, mixInst, phaseInst, trackInst
+const pathChart = ref(null)
+let roleInst, rankInst, mixInst, phaseInst, trackInst, pathInst
 
 const dialogVisible = ref(false)
 const detail = ref(null)
@@ -289,14 +320,82 @@ const renderRank = () => {
 
 const openUser = async (row) => {
   try {
+    influencePath.value = null
     detail.value = await vaAPI.getUserDetail(row.user_id)
     dialogVisible.value = true
     await nextTick()
     renderDrill()
+    // 异步加载影响力路径（不阻塞主对话框）
+    try {
+      influencePath.value = await vaAPI.getInfluencePath(row.user_id)
+      await nextTick()
+      renderPath()
+    } catch (err) {
+      console.warn('influence-path load failed', err)
+    }
   } catch (e) {
     console.error(e)
     ElMessage.error('加载用户详情失败')
   }
+}
+
+const renderPath = () => {
+  if (!pathChart.value || !influencePath.value) return
+  pathInst = pathInst || echarts.init(pathChart.value)
+  const p = influencePath.value.path || []
+  // 把时间序列转成 [ts, cumulative_reposts] 三条曲线 + 来源用户散点
+  const repostPts = p.map(r => [r.ts, r.cum_reposts])
+  const commentPts = p.map(r => [r.ts, r.cum_comments])
+  const likePts = p.map(r => [r.ts, r.cum_likes])
+  // 在 repost 事件上做散点，按来源影响力着色
+  const repostEvents = p.filter(r => r.action_type === 'repost').map(r => ({
+    value: [r.ts, r.cum_reposts],
+    name: r.src_name || '匿名',
+    src_influence: r.src_influence ?? 0,
+    src_role: r.src_role ?? '—',
+    src_tier: r.src_tier ?? '—',
+  }))
+  pathInst.setOption({
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'cross' },
+      backgroundColor: 'rgba(26,26,46,0.95)', borderColor: '#667eea', textStyle: { color: '#fff' },
+      formatter: params => {
+        if (!params.length) return ''
+        const t = params[0].axisValueLabel
+        const lines = [`<b>${t}</b>`]
+        params.forEach(p => {
+          if (p.seriesType === 'scatter' && p.data) {
+            lines.push(`🔁 来自 <b>${p.data.name}</b>（${p.data.src_role}/${p.data.src_tier}）`
+              + ` 影响力 ${p.data.src_influence}`)
+          } else {
+            lines.push(`${p.marker} ${p.seriesName}: ${p.value[1] ?? p.value}`)
+          }
+        })
+        return lines.join('<br/>')
+      }
+    },
+    legend: { top: 0, textStyle: { color: '#b8b8d1' } },
+    grid: { left: 50, right: 20, top: 32, bottom: 40 },
+    xAxis: { type: 'time', axisLabel: { color: '#b8b8d1' },
+      splitLine: { lineStyle: { color: '#2d2d44', type: 'dashed' } } },
+    yAxis: { type: 'value', name: '累计', nameTextStyle: { color: '#b8b8d1' },
+      axisLabel: { color: '#b8b8d1' },
+      splitLine: { lineStyle: { color: '#2d2d44', type: 'dashed' } } },
+    series: [
+      { name: '累计被转发', type: 'line', smooth: true, symbol: 'none', data: repostPts,
+        lineStyle: { color: '#ff6b6b', width: 2.5 },
+        areaStyle: { color: 'rgba(255,107,107,0.15)' } },
+      { name: '累计评论', type: 'line', smooth: true, symbol: 'none', data: commentPts,
+        lineStyle: { color: '#f6bd16', width: 1.8 } },
+      { name: '累计点赞', type: 'line', smooth: true, symbol: 'none', data: likePts,
+        lineStyle: { color: '#4ECDC4', width: 1.5 } },
+      { name: '转发来源', type: 'scatter', data: repostEvents,
+        symbolSize: v => 6 + Math.min(18, Math.sqrt((repostEvents.find(e=>e.value[0]===v[0]&&e.value[1]===v[1])||{}).src_influence || 0) * 0.7),
+        itemStyle: { color: '#ff6b6b', opacity: 0.7, borderColor: '#fff', borderWidth: 0.5 }
+      }
+    ]
+  })
 }
 
 const renderDrill = () => {
@@ -378,6 +477,21 @@ onMounted(() => {
   margin-bottom: var(--spacing-sm); }
 .chart { width: 100%; }
 .table-hint { font-size: 12px; color: var(--text-muted); margin-top: var(--spacing-sm); }
+
+.dc-sub { font-size: 11px; color: var(--text-muted); font-weight: normal; margin-left: 8px; }
+.top-sources { margin-top: var(--spacing-sm); padding-top: var(--spacing-sm);
+  border-top: 1px dashed var(--border-color); }
+.ts-label { font-size: 11px; color: var(--text-muted); }
+.ts-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.ts-chip { background: var(--bg-tertiary); padding: 6px 10px; border-radius: var(--radius-sm);
+  display: flex; flex-direction: column; gap: 2px; border-left: 3px solid #71717a; }
+.ts-chip.头部 { border-left-color: #ff6b6b; }
+.ts-chip.腰部 { border-left-color: #f6bd16; }
+.ts-chip.长尾 { border-left-color: #5b8ff9; }
+.ts-chip b { font-size: 13px; color: var(--text-primary); }
+.ts-role { font-size: 11px; color: var(--text-secondary); }
+.ts-stat { font-size: 11px; color: var(--text-primary); }
+.ts-meta { font-size: 10px; color: var(--text-muted); }
 
 .drill-profile { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-sm);
   margin-bottom: var(--spacing-md); }
